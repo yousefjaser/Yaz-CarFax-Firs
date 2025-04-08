@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, View, TouchableOpacity, ImageBackground, StatusBar, ScrollView, Dimensions, SafeAreaView, Keyboard, Animated, KeyboardAvoidingView, Platform, Image, Easing } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, ImageBackground, StatusBar, ScrollView, Dimensions, SafeAreaView, Keyboard, Animated, KeyboardAvoidingView, Platform, Image, Easing, Linking, Alert } from 'react-native';
 import { Text, Checkbox, Surface, ActivityIndicator } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import Input from '../components/Input';
@@ -227,6 +227,76 @@ export default function LoginScreen() {
   // حساب حالة الحواف لقسم تسجيل الدخول
   const borderRadius = keyboardVisible ? 0 : 30;
 
+  const openWhatsapp = (type = 'help') => {
+    // تنسيق الرقم مع رمز الدولة وإزالة الصفر من البداية
+    const whatsappNumber = '0598565009';
+    const formattedNumber = '972' + whatsappNumber.substring(1); // إضافة 972 (رمز فلسطين) وإزالة الصفر الأول
+
+    // تحضير النص حسب نوع المساعدة المطلوبة
+    let message = "مرحبا، أحتاج للمساعدة في حسابي على تطبيق YazCar";
+    if (type === 'register') {
+      message = "مرحبا، أرغب في إنشاء حساب جديد في تطبيق YazCar";
+    } else if (type === 'password') {
+      message = "مرحبا، أحتاج إلى استعادة كلمة المرور في تطبيق YazCar";
+    }
+    
+    const encodedMessage = encodeURIComponent(message);
+    const whatsappUrl = `https://wa.me/${formattedNumber}?text=${encodedMessage}`;
+    
+    Linking.canOpenURL(whatsappUrl)
+      .then(supported => {
+        if (supported) {
+          return Linking.openURL(whatsappUrl);
+        } else {
+          Alert.alert('خطأ', 'تطبيق واتساب غير مثبت على جهازك');
+        }
+      })
+      .catch(err => {
+        console.error('فشل في فتح واتساب:', err);
+        Alert.alert('خطأ', 'فشل في فتح تطبيق واتساب');
+      });
+  };
+  
+  const showRegisterOptions = () => {
+    Alert.alert(
+      'إنشاء حساب جديد',
+      'تواصل معنا للحصول على حساب في التطبيق',
+      [
+        {
+          text: 'طلب حساب جديد (واتساب)',
+          onPress: () => openWhatsapp('register'),
+        },
+        {
+          text: 'استعادة كلمة المرور (واتساب)',
+          onPress: () => openWhatsapp('password'),
+        },
+        {
+          text: 'إلغاء',
+          style: 'cancel',
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const showPasswordResetOptions = () => {
+    Alert.alert(
+      'استعادة كلمة المرور',
+      'تواصل معنا لاستعادة كلمة المرور الخاصة بك',
+      [
+        {
+          text: 'استعادة عبر واتساب',
+          onPress: () => openWhatsapp('password'),
+        },
+        {
+          text: 'إلغاء',
+          style: 'cancel',
+        },
+      ],
+      { cancelable: true }
+    );
+  };
+
   return (
     <SafeAreaView style={[
       styles.container,
@@ -381,7 +451,7 @@ export default function LoginScreen() {
                 </TouchableOpacity>
               </View>
               
-              <TouchableOpacity onPress={() => router.push("/auth/forgot-password")}>
+              <TouchableOpacity onPress={showPasswordResetOptions}>
                 <Text style={styles.forgotPassword}>نسيت كلمة المرور؟</Text>
               </TouchableOpacity>
             </View>
@@ -402,10 +472,18 @@ export default function LoginScreen() {
             
             <View style={styles.registerContainer}>
               <Text style={styles.noAccountText}>ليس لديك حساب؟</Text>
-              <TouchableOpacity onPress={() => router.push("/auth/register")}>
+              <TouchableOpacity onPress={showRegisterOptions}>
                 <Text style={styles.registerText}>إنشاء حساب</Text>
               </TouchableOpacity>
             </View>
+            
+            <TouchableOpacity 
+              style={styles.whatsappButton}
+              onPress={() => openWhatsapp('help')}
+            >
+              <Icon name="whatsapp" size={20} color="#fff" />
+              <Text style={styles.whatsappButtonText}>تواصل معنا للمساعدة</Text>
+            </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
       </Animated.View>
@@ -555,6 +633,23 @@ const styles = StyleSheet.create({
     color: '#083c70',
     fontSize: 14,
     fontWeight: 'bold',
+  },
+  whatsappButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#25D366',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 20,
+    marginTop: 15,
+    marginHorizontal: 30,
+  },
+  whatsappButtonText: {
+    color: '#ffffff',
+    marginRight: 10,
+    fontWeight: 'bold',
+    fontSize: 14,
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,

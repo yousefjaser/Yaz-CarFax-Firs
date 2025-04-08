@@ -123,7 +123,7 @@ const WebCamera = ({ onBarCodeScanned, style, onError, isScanned }) => {
       
       // إذا وجد رمز QR
       if (code) {
-        console.log('تم العثور على رمز QR:', code.data);
+        console.log('تم العثور على رمز QR في الويب:', code.data);
         
         // إيقاف مسح الكود بعد العثور عليه
         if (scanIntervalRef.current) {
@@ -140,8 +140,11 @@ const WebCamera = ({ onBarCodeScanned, style, onError, isScanned }) => {
     
     // إذا لم يبدأ المسح بعد، ابدأ المسح
     if (!scanIntervalRef.current && !isScanned) {
-      // بدء المسح كل 300 مللي ثانية
-      scanIntervalRef.current = setInterval(scanQRCode, 300);
+      // تسريع المسح أكثر خاصة للجوال إلى 100 مللي ثانية
+      scanIntervalRef.current = setInterval(scanQRCode, 100);
+      
+      // تنفيذ المسح مرة فوراً عند التحميل
+      scanQRCode();
     }
     
     return () => {
@@ -150,6 +153,55 @@ const WebCamera = ({ onBarCodeScanned, style, onError, isScanned }) => {
       }
     };
   }, [isVideoReady, onBarCodeScanned, isScanned]);
+
+  // معالجة المسح اليدوي عند الضغط على الصورة
+  const handleManualScan = () => {
+    if (isScanned) return;
+    
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+      
+      // ضبط أبعاد الكانفاس لتناسب الفيديو
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      // رسم إطار الفيديو على الكانفاس
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // الحصول على بيانات الصورة
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      
+      // مسح رمز QR باستخدام مكتبة jsQR
+      const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "dontInvert",
+      });
+      
+      // إذا وجد رمز QR
+      if (code) {
+        console.log('تم العثور على رمز QR يدوياً في الويب:', code.data);
+        
+        // إيقاف المسح الآلي
+        if (scanIntervalRef.current) {
+          clearInterval(scanIntervalRef.current);
+          scanIntervalRef.current = null;
+        }
+        
+        onBarCodeScanned && onBarCodeScanned({ 
+          type: 'QR_CODE', 
+          data: code.data 
+        });
+      } else {
+        // إذا لم يجد رمز، أظهر تنبيه متوافق مع الويب
+        if (Platform.OS === 'web') {
+          window.alert('لم يتم العثور على رمز QR في الصورة الحالية. حاول توجيه الكاميرا بشكل أفضل.');
+        } else {
+          alert('لم يتم العثور على رمز QR في الصورة الحالية. حاول توجيه الكاميرا بشكل أفضل.');
+        }
+      }
+    }
+  };
   
   return (
     <View style={[styles.webCameraContainer, style]}>
@@ -162,17 +214,58 @@ const WebCamera = ({ onBarCodeScanned, style, onError, isScanned }) => {
         </View>
       ) : (
         <>
-          <video
-            ref={videoRef}
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-            }}
-            playsInline
-            autoPlay
-            muted
-          />
+          <TouchableOpacity 
+            style={{ width: '100%', height: '100%' }}
+            onPress={handleManualScan} // إضافة المسح اليدوي عند الضغط
+          >
+            <video
+              ref={videoRef}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'cover',
+              }}
+              playsInline
+              autoPlay
+              muted
+            />
+            
+            {/* إضافة إطار مسح لواجهة الويب لتوجيه المستخدم */}
+            <View style={styles.webScanFrame}>
+              <View style={styles.webScanFrameCorner1} />
+              <View style={styles.webScanFrameCorner2} />
+              <View style={styles.webScanFrameCorner3} />
+              <View style={styles.webScanFrameCorner4} />
+            </View>
+          </TouchableOpacity>
+          
+          {/* توجيه المستخدم للضغط على الشاشة للمسح اليدوي */}
+          {isVideoReady && !isScanned && (
+            <View style={styles.webHelpOverlay}>
+              <Text style={styles.webHelpText}>
+                اضغط على الشاشة للمسح اليدوي إذا لم يعمل المسح التلقائي
+              </Text>
+            </View>
+          )}
+          
+          {/* زر إعادة المسح عند العثور على كود */}
+          {isScanned && (
+            <View style={styles.webRescanButtonContainer}>
+              <TouchableOpacity
+                style={styles.webRescanButton}
+                onPress={() => {
+                  // إعادة تفعيل المسح
+                  if (onBarCodeScanned) {
+                    // إعلام المكون الأب بإعادة المسح
+                    onBarCodeScanned({ type: 'reset', data: 'reset' });
+                  }
+                }}
+              >
+                <Text style={styles.webRescanButtonText}>مسح مرة أخرى</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          
           {/* كانفاس مخفي للتحليل */}
           <canvas
             ref={canvasRef}
@@ -297,36 +390,61 @@ export default function ScanScreen() {
 
   // معالجة الباركود الممسوح
   const handleBarCodeScanned = (scanningResult) => {
-    // التأكد من عدم مسح باركود مسبقاً - لمنع المسح المتكرر
-    if (scanned || isSearching.current) {
-      console.log("تم تجاهل المسح لأن هناك مسح سابق قيد المعالجة");
-      return;
+    try {
+      // التحقق من طلب إعادة المسح من مكون WebCamera
+      if (scanningResult.type === 'reset') {
+        console.log("طلب إعادة المسح من مكون الكاميرا");
+        setScanned(false);
+        isSearching.current = false;
+        return;
+      }
+      
+      // التأكد من عدم مسح باركود مسبقاً - لمنع المسح المتكرر
+      if (scanned || isSearching.current) {
+        console.log("تم تجاهل المسح لأن هناك مسح سابق قيد المعالجة");
+        return;
+      }
+      
+      console.log("تم استلام باركود للمعالجة:", scanningResult);
+      
+      // قفل البحث لمنع التكرار
+      isSearching.current = true;
+      
+      // إيقاف المسح فوراً لمنع المسح المتكرر
+      console.log("تم العثور على باركود - إيقاف المسح");
+      setScanned(true);
+      
+      const qrData = scanningResult.data;
+      setLastScannedData(qrData);
+      console.log(`تم مسح الباركود: ${qrData} (${scanningResult.type})`);
+      
+      // التحقق من وجود معلمة returnTo في عنوان URL
+      const params = new URLSearchParams(window?.location?.search);
+      const returnTo = params.get('returnTo') || searchParams?.returnTo;
+      
+      if (returnTo === 'add-car') {
+        // العودة إلى صفحة إضافة السيارة مع QR ID
+        console.log('العودة إلى صفحة إضافة السيارة مع QR ID:', qrData);
+        router.replace(`/shop/add-car?qrId=${encodeURIComponent(qrData)}`);
+        return;
+      }
+      
+      // البحث عن السيارة باستخدام البيانات الممسوحة مباشرة
+      console.log('معالجة بيانات QR code مباشرة...');
+      handleSearch(qrData);
+    } catch (error) {
+      console.error('خطأ أثناء معالجة الباركود الممسوح:', error);
+      
+      // استخدام تنبيه متوافق مع المنصة
+      if (Platform.OS === 'web') {
+        window.alert('حدث خطأ أثناء معالجة الرمز الممسوح');
+      } else {
+        Alert.alert('خطأ', 'حدث خطأ أثناء معالجة الرمز الممسوح');
+      }
+      
+      setScanned(false);
+      isSearching.current = false;
     }
-    
-    // قفل البحث لمنع التكرار
-    isSearching.current = true;
-    
-    // إيقاف المسح فوراً لمنع المسح المتكرر
-    console.log("تم العثور على باركود - إيقاف المسح");
-    setScanned(true);
-    
-    const qrData = scanningResult.data;
-    setLastScannedData(qrData);
-    console.log(`تم مسح الباركود: ${qrData} (${scanningResult.type})`);
-    
-    // التحقق من وجود معلمة returnTo في عنوان URL
-    const params = new URLSearchParams(window?.location?.search);
-    const returnTo = params.get('returnTo') || searchParams?.returnTo;
-    
-    if (returnTo === 'add-car') {
-      // العودة إلى صفحة إضافة السيارة مع QR ID
-      console.log('العودة إلى صفحة إضافة السيارة مع QR ID:', qrData);
-      router.replace(`/shop/add-car?qrId=${encodeURIComponent(qrData)}`);
-      return;
-    }
-    
-    // البحث عن السيارة باستخدام البيانات الممسوحة
-    handleSearch(qrData);
   };
   
   // زر إعادة المسح - نستخدمه في الدايالوجات المختلفة
@@ -372,68 +490,129 @@ export default function ScanScreen() {
         
       if (newError) {
         console.error("خطأ في البحث في جدول cars_new:", newError);
-        Alert.alert('خطأ', 'حدث خطأ أثناء البحث في قاعدة البيانات', [rescanButton]);
-        isSearching.current = false; // إعادة تعيين حالة البحث
+        
+        // استخدام نظام تنبيهات متوافق مع الويب
+        if (Platform.OS === 'web') {
+          setLoading(false);
+          // استخدام alert المتصفح في بيئة الويب
+          window.alert('حدث خطأ أثناء البحث في قاعدة البيانات');
+          isSearching.current = false;
+          setScanned(false);
+        } else {
+          Alert.alert('خطأ', 'حدث خطأ أثناء البحث في قاعدة البيانات', [rescanButton]);
+          isSearching.current = false;
+        }
         return;
       }
+      
+      setLoading(false);
       
       if (newCar) {
         // تم العثور على السيارة في جدول cars_new
         console.log("تم العثور على السيارة في جدول cars_new:", newCar);
         
-        // عرض معلومات السيارة في تنبيه
-        Alert.alert(
-          'تم العثور على السيارة',
-          `رقم QR: ${newCar.qr_id}
+        // في بيئة الويب استخدم alert المتصفح ثم انتقل مباشرة
+        if (Platform.OS === 'web') {
+          // إنشاء رسالة تحتوي على بيانات السيارة
+          const carMessage = `تم العثور على السيارة: 
+رقم QR: ${newCar.qr_id}
+نوع: ${newCar.make || ''} ${newCar.model || ''}
+سنة الصنع: ${newCar.year || ''}
+لوحة: ${newCar.plate_number || ''}
+العميل: ${newCar.customer?.name || 'غير معروف'}`;
+          
+          // حفظ البيانات في مخزن مؤقت
+          const carData = {
+            id: newCar.id,
+            qr_id: newCar.qr_id,
+            make: newCar.make,
+            model: newCar.model,
+            year: newCar.year,
+            plate_number: newCar.plate_number,
+            customer: newCar.customer,
+            source: 'cars_new'
+          };
+          global.tempCarData = carData;
+          
+          // عرض التنبيه مع خيار الانتقال
+          if (window.confirm(carMessage + "\n\nهل تريد عرض التفاصيل؟")) {
+            router.push(`/shop/car-details/${newCar.qr_id}?source=cars_new`);
+          } else {
+            // السماح بإعادة المسح
+            setScanned(false);
+            isSearching.current = false;
+          }
+        } else {
+          // عرض معلومات السيارة في تنبيه للأجهزة المحمولة
+          Alert.alert(
+            'تم العثور على السيارة',
+            `رقم QR: ${newCar.qr_id}
 نوع: ${newCar.make || ''} ${newCar.model || ''}
 سنة الصنع: ${newCar.year || ''}
 لوحة: ${newCar.plate_number || ''}
 العميل: ${newCar.customer?.name || 'غير معروف'}`,
-          [
-            { 
-              text: "عرض التفاصيل", 
-              style: "default",
-              onPress: () => {
-                // لأن السيارة موجودة في cars_new، نحتاج لنقل البيانات لعرضها
-                const carData = {
-                  id: newCar.id,
-                  qr_id: newCar.qr_id,
-                  make: newCar.make,
-                  model: newCar.model,
-                  year: newCar.year,
-                  plate_number: newCar.plate_number,
-                  customer: newCar.customer,
-                  source: 'cars_new' // لتحديد مصدر البيانات
-                };
-                
-                // حفظ البيانات في مخزن مؤقت
-                global.tempCarData = carData;
-                
-                // التوجيه لصفحة تفاصيل السيارة مع تحديد أنها من cars_new
-                router.push(`/shop/car-details/${newCar.qr_id}?source=cars_new`);
-              }
-            },
-            rescanButton
-          ]
-        );
+            [
+              { 
+                text: "عرض التفاصيل", 
+                style: "default",
+                onPress: () => {
+                  // لأن السيارة موجودة في cars_new، نحتاج لنقل البيانات لعرضها
+                  const carData = {
+                    id: newCar.id,
+                    qr_id: newCar.qr_id,
+                    make: newCar.make,
+                    model: newCar.model,
+                    year: newCar.year,
+                    plate_number: newCar.plate_number,
+                    customer: newCar.customer,
+                    source: 'cars_new' // لتحديد مصدر البيانات
+                  };
+                  
+                  // حفظ البيانات في مخزن مؤقت
+                  global.tempCarData = carData;
+                  
+                  // التوجيه لصفحة تفاصيل السيارة مع تحديد أنها من cars_new
+                  router.push(`/shop/car-details/${newCar.qr_id}?source=cars_new`);
+                }
+              },
+              rescanButton
+            ]
+          );
+        }
         isSearching.current = false; // إعادة تعيين حالة البحث
         return;
       }
       
       // لم يتم العثور على السيارة في cars_new
       console.log("لم يتم العثور على سيارة بهذا الرمز في جدول cars_new");
-      Alert.alert(
-        'لم يتم العثور', 
-        'لم يتم العثور على سيارة بهذا الرمز',
-        [rescanButton]
-      );
-      isSearching.current = false; // إعادة تعيين حالة البحث
+      
+      // استخدام تنبيهات مختلفة حسب المنصة
+      if (Platform.OS === 'web') {
+        window.alert('لم يتم العثور على سيارة بهذا الرمز');
+        setScanned(false);
+        isSearching.current = false;
+      } else {
+        Alert.alert(
+          'لم يتم العثور', 
+          'لم يتم العثور على سيارة بهذا الرمز',
+          [rescanButton]
+        );
+        isSearching.current = false;
+      }
       
     } catch (error) {
-      Alert.alert('خطأ', 'حدث خطأ غير متوقع', [rescanButton]);
-      console.error(error);
-      Sentry.Native.captureException(error);
-      isSearching.current = false; // إعادة تعيين حالة البحث
+      setLoading(false);
+      console.error('خطأ في البحث عن السيارة:', error);
+      
+      if (Platform.OS === 'web') {
+        window.alert('حدث خطأ غير متوقع أثناء البحث');
+        setScanned(false);
+        isSearching.current = false;
+      } else {
+        Alert.alert('خطأ', 'حدث خطأ غير متوقع', [rescanButton]);
+        Sentry.Native.captureException(error);
+        isSearching.current = false;
+      }
     } finally {
       setLoading(false);
     }
@@ -984,5 +1163,97 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  webHelpOverlay: {
+    position: 'absolute',
+    bottom: 20,
+    left: 0,
+    right: 0,
+    padding: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  webHelpText: {
+    color: '#FFF',
+    fontSize: 16,
+    textAlign: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    padding: 10,
+    borderRadius: 10,
+    maxWidth: '80%',
+  },
+  webScanFrame: {
+    position: 'absolute',
+    top: '20%',
+    left: '15%',
+    right: '15%',
+    bottom: '20%',
+    borderWidth: 0,
+    borderColor: COLORS.primary,
+    borderRadius: 10,
+  },
+  webScanFrameCorner1: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 40,
+    height: 40,
+    borderTopWidth: 5,
+    borderLeftWidth: 5,
+    borderColor: COLORS.primary,
+    borderTopLeftRadius: 10,
+  },
+  webScanFrameCorner2: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 40,
+    height: 40,
+    borderTopWidth: 5,
+    borderRightWidth: 5,
+    borderColor: COLORS.primary,
+    borderTopRightRadius: 10,
+  },
+  webScanFrameCorner3: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    width: 40,
+    height: 40,
+    borderBottomWidth: 5,
+    borderLeftWidth: 5,
+    borderColor: COLORS.primary,
+    borderBottomLeftRadius: 10,
+  },
+  webScanFrameCorner4: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 40,
+    height: 40,
+    borderBottomWidth: 5,
+    borderRightWidth: 5,
+    borderColor: COLORS.primary,
+    borderBottomRightRadius: 10,
+  },
+  webRescanButtonContainer: {
+    position: 'absolute',
+    bottom: 30,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  webRescanButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    padding: 10,
+  },
+  webRescanButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 }); 

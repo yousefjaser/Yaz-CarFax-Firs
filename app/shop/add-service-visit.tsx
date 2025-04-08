@@ -1,97 +1,46 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
-import { Text, Appbar, TextInput, Button, Divider, Menu, HelperText } from 'react-native-paper';
+import { View, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
+import { Text, Appbar, TextInput, Button, Divider, Surface, Checkbox } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import { supabase } from '../config';
 import { useAuthStore } from '../utils/store';
 import Loading from '../components/Loading';
-import Input from '../components/Input';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import { TouchableOpacity } from 'react-native-gesture-handler';
 
 export default function AddServiceVisitScreen() {
   const router = useRouter();
   const { carId } = useLocalSearchParams();
   const { user } = useAuthStore();
-  const [loading, setLoading] = useState(false);
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [car, setCar] = useState<any>(null);
   const [shop, setShop] = useState<any>(null);
   
-  // بيانات الخدمة
+  // بيانات تغيير الزيت
   const [date, setDate] = useState<Date>(new Date());
-  const [mileage, setMileage] = useState('');
-  const [price, setPrice] = useState('');
+  const [odometer, setOdometer] = useState('');
+  const [oilType, setOilType] = useState('');
+  const [oilGrade, setOilGrade] = useState('');
+  const [nextChangeOdometer, setNextChangeOdometer] = useState('');
   const [notes, setNotes] = useState('');
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [price, setPrice] = useState('');
   const [showDatePicker, setShowDatePicker] = useState(false);
   
-  // قائمة فئات الخدمات
-  const [categories, setCategories] = useState<any[]>([]);
-  const [menuVisible, setMenuVisible] = useState(false);
-  
-  // حالة الأخطاء
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  // حالة الفلاتر
+  const [oilFilterChanged, setOilFilterChanged] = useState(true);
+  const [airFilterChanged, setAirFilterChanged] = useState(false);
+  const [cabinFilterChanged, setCabinFilterChanged] = useState(false);
   
   useEffect(() => {
+    loadShopData();
     if (carId) {
       loadCarData();
-      loadServiceCategories();
-      loadShopData();
     }
   }, [carId]);
   
-  // تحميل بيانات السيارة
-  const loadCarData = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('cars')
-        .select(`
-          *,
-          customer:customer_id (
-            id,
-            name,
-            phone
-          )
-        `)
-        .eq('id', carId)
-        .single();
-      
-      if (error) throw error;
-      setCar(data);
-    } catch (error) {
-      console.error('فشل في تحميل بيانات السيارة:', error);
-      Alert.alert('خطأ', 'فشل في تحميل بيانات السيارة');
-      router.back();
-    } finally {
-      setInitialLoading(false);
-    }
-  };
-  
-  // تحميل فئات الخدمات
-  const loadServiceCategories = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('service_categories')
-        .select('*')
-        .order('name');
-      
-      if (error) throw error;
-      setCategories(data || []);
-      
-      // تعيين الفئة الافتراضية
-      if (data && data.length > 0) {
-        setSelectedCategoryId(data[0].id);
-      }
-    } catch (error) {
-      console.error('فشل في تحميل فئات الخدمة:', error);
-    }
-  };
-  
-  // تحميل بيانات المحل
   const loadShopData = async () => {
     if (!user) return;
     
@@ -109,62 +58,40 @@ export default function AddServiceVisitScreen() {
     }
   };
   
-  const validateForm = () => {
-    const newErrors: Record<string, string> = {};
-    
-    if (!selectedCategoryId) {
-      newErrors.category = 'الرجاء اختيار نوع الخدمة';
-    }
-    
-    if (!price.trim()) {
-      newErrors.price = 'الرجاء إدخال سعر الخدمة';
-    } else if (isNaN(Number(price)) || Number(price) <= 0) {
-      newErrors.price = 'الرجاء إدخال سعر صحيح';
-    }
-    
-    if (mileage.trim() && (isNaN(Number(mileage)) || Number(mileage) < 0)) {
-      newErrors.mileage = 'الرجاء إدخال قراءة عداد صحيحة';
-    }
-    
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-  
-  const handleSubmit = async () => {
-    if (!validateForm() || !car || !shop) return;
-    
-    setLoading(true);
-    
+  const loadCarData = async () => {
     try {
       const { data, error } = await supabase
-        .from('service_visits')
-        .insert({
-          car_id: carId,
-          shop_id: shop.id,
-          service_category_id: selectedCategoryId,
-          date: date.toISOString(),
-          mileage: mileage ? Number(mileage) : null,
-          notes: notes.trim() || null,
-          price: Number(price),
-        })
-        .select()
-        .single();
+        .from('cars_new')
+        .select(`
+          *,
+          customer:customer_id (
+            id,
+            name,
+            phone
+          )
+        `)
+        .eq('qr_id', carId)
+        .maybeSingle();
       
       if (error) throw error;
       
-      Alert.alert(
-        'تم بنجاح',
-        'تمت إضافة الخدمة بنجاح',
-        [
-          {
-            text: 'موافق',
-            onPress: () => router.back(),
-          },
-        ]
-      );
-    } catch (error: any) {
-      console.error('فشل في إضافة الخدمة:', error);
-      Alert.alert('خطأ', error.message || 'حدث خطأ أثناء إضافة الخدمة');
+      if (data) {
+        setCar(data);
+        if (data.current_odometer) {
+          setOdometer(data.current_odometer.toString());
+          // حساب العداد للتغيير القادم (+5000 كم)
+          const nextOdo = parseInt(data.current_odometer) + 5000;
+          setNextChangeOdometer(nextOdo.toString());
+        }
+        
+        // استخدام البيانات السابقة للزيت إن وجدت
+        if (data.oil_type) setOilType(data.oil_type);
+        if (data.oil_grade) setOilGrade(data.oil_grade);
+      }
+      
+    } catch (error) {
+      console.error('فشل في تحميل بيانات السيارة:', error);
+      Alert.alert('خطأ', 'فشل في تحميل بيانات السيارة');
     } finally {
       setLoading(false);
     }
@@ -185,95 +112,133 @@ export default function AddServiceVisitScreen() {
     });
   };
   
-  const getSelectedCategoryName = () => {
-    const category = categories.find(cat => cat.id === selectedCategoryId);
-    return category ? category.name : 'اختر نوع الخدمة';
+  const validateForm = () => {
+    if (!odometer.trim()) {
+      Alert.alert('خطأ', 'الرجاء إدخال قراءة العداد الحالية');
+      return false;
+    }
+    
+    if (!oilType.trim()) {
+      Alert.alert('خطأ', 'الرجاء إدخال نوع الزيت');
+      return false;
+    }
+    
+    if (!nextChangeOdometer.trim()) {
+      Alert.alert('خطأ', 'الرجاء إدخال قراءة العداد للتغيير القادم');
+      return false;
+    }
+    
+    return true;
   };
   
-  const openMenu = () => setMenuVisible(true);
-  const closeMenu = () => setMenuVisible(false);
-  const selectCategory = (category: any) => {
-    setSelectedCategoryId(category.id);
-    setMenuVisible(false);
-    if (errors.category) {
-      setErrors({ ...errors, category: '' });
+  const handleSubmit = async () => {
+    if (!validateForm() || !car || !shop) return;
+    
+    setSubmitting(true);
+    
+    try {
+      // تحديث بيانات السيارة في جدول cars_new
+      const { error } = await supabase
+        .from('cars_new')
+        .update({
+          current_odometer: odometer,
+          last_oil_change_date: date.toISOString(),
+          last_oil_change_odometer: odometer,
+          next_oil_change_odometer: nextChangeOdometer,
+          oil_type: oilType,
+          oil_grade: oilGrade,
+          oil_filter_changed: oilFilterChanged,
+          air_filter_changed: airFilterChanged,
+          cabin_filter_changed: cabinFilterChanged,
+          next_service_notes: notes.trim() || null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('qr_id', car.qr_id);
+      
+      if (error) throw error;
+      
+      Alert.alert(
+        'تم بنجاح',
+        'تم تسجيل تغيير الزيت بنجاح',
+        [
+          {
+            text: 'العودة إلى قائمة السيارات',
+            onPress: () => router.back()
+          }
+        ]
+      );
+      
+    } catch (error) {
+      console.error('فشل في تسجيل تغيير الزيت:', error);
+      Alert.alert('خطأ', 'فشل في تسجيل تغيير الزيت. يرجى المحاولة مرة أخرى.');
+    } finally {
+      setSubmitting(false);
     }
   };
   
-  if (initialLoading) {
-    return <Loading fullScreen message="جاري تحميل البيانات..." />;
+  if (loading) {
+    return <Loading fullScreen message="جاري تحميل بيانات السيارة..." />;
   }
   
   return (
     <View style={styles.container}>
-      <Appbar.Header>
-        <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content title="إضافة خدمة جديدة" />
+      <Appbar.Header style={styles.header}>
+        <Appbar.BackAction onPress={() => router.back()} color="#fff" />
+        <Appbar.Content title="تغيير زيت" titleStyle={{ color: '#fff' }} />
       </Appbar.Header>
       
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardAvoidContainer}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {car && (
-            <View style={styles.carInfoContainer}>
-              <Text style={styles.carTitle}>{car.make} {car.model} - {car.year}</Text>
-              <Text style={styles.carDetail}>رقم اللوحة: {car.plate_number}</Text>
-              <Text style={styles.carDetail}>
-                العميل: {car.customer?.name || 'غير معروف'} - {car.customer?.phone || 'غير متوفر'}
-              </Text>
-            </View>
-          )}
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <Surface style={styles.carInfoCard}>
+          <View style={styles.carInfoHeader}>
+            <Icon name="car" size={24} color={COLORS.primary} />
+            <Text style={styles.carInfoTitle}>بيانات السيارة</Text>
+          </View>
           
           <Divider style={styles.divider} />
           
-          <Text style={styles.sectionTitle}>تفاصيل الخدمة</Text>
-          
-          {/* اختيار نوع الخدمة */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.inputLabel}>نوع الخدمة:</Text>
-            <Menu
-              visible={menuVisible}
-              onDismiss={closeMenu}
-              anchor={
-                <Button 
-                  mode="outlined" 
-                  onPress={openMenu} 
-                  icon="menu-down"
-                  style={styles.dropdownButton}
-                >
-                  {getSelectedCategoryName()}
-                </Button>
-              }
-            >
-              {categories.map((category) => (
-                <Menu.Item
-                  key={category.id}
-                  title={category.name}
-                  onPress={() => selectCategory(category)}
-                />
-              ))}
-            </Menu>
-            {errors.category && (
-              <HelperText type="error" visible={!!errors.category}>
-                {errors.category}
-              </HelperText>
-            )}
+          <View style={styles.carInfoRow}>
+            <View style={styles.carInfoItem}>
+              <Text style={styles.carInfoLabel}>الطراز:</Text>
+              <Text style={styles.carInfoValue}>{car?.make} {car?.model}</Text>
+            </View>
+            
+            <View style={styles.carInfoItem}>
+              <Text style={styles.carInfoLabel}>رقم اللوحة:</Text>
+              <Text style={styles.carInfoValue}>{car?.plate_number}</Text>
+            </View>
           </View>
           
-          {/* اختيار التاريخ */}
-          <View style={styles.inputContainer}>
-            <Text style={styles.label}>تاريخ الخدمة</Text>
-            <TouchableOpacity
+          <View style={styles.carInfoRow}>
+            <View style={styles.carInfoItem}>
+              <Text style={styles.carInfoLabel}>العميل:</Text>
+              <Text style={styles.carInfoValue}>{car?.customer?.name || 'غير معروف'}</Text>
+            </View>
+            
+            <View style={styles.carInfoItem}>
+              <Text style={styles.carInfoLabel}>آخر تغيير زيت:</Text>
+              <Text style={styles.carInfoValue}>
+                {car?.last_oil_change_date ? formatDate(new Date(car.last_oil_change_date)) : 'لا يوجد'}
+              </Text>
+            </View>
+          </View>
+        </Surface>
+        
+        <Surface style={styles.formCard}>
+          <View style={styles.cardHeader}>
+            <Icon name="oil" size={24} color={COLORS.primary} />
+            <Text style={styles.cardTitle}>تفاصيل تغيير الزيت</Text>
+          </View>
+          
+          <Divider style={styles.divider} />
+          
+          <View style={styles.formGroup}>
+            <Text style={styles.inputLabel}>تاريخ تغيير الزيت:</Text>
+            <TouchableOpacity 
               style={styles.dateButton}
               onPress={() => setShowDatePicker(true)}
             >
-              <Icon name="calendar" size={20} color={COLORS.primary} style={styles.dateIcon} />
               <Text style={styles.dateText}>{formatDate(date)}</Text>
+              <Icon name="calendar" size={24} color={COLORS.primary} />
             </TouchableOpacity>
             
             {showDatePicker && (
@@ -287,63 +252,125 @@ export default function AddServiceVisitScreen() {
             )}
           </View>
           
-          {/* قراءة العداد */}
-          <Input
-            label="قراءة العداد (اختياري)"
-            value={mileage}
-            onChangeText={(text) => {
-              setMileage(text);
-              if (errors.mileage) {
-                setErrors({ ...errors, mileage: '' });
-              }
-            }}
-            error={errors.mileage}
-            keyboardType="numeric"
-            icon="speedometer"
-          />
-          
-          {/* السعر */}
-          <TextInput
-            label="السعر (ريال)"
-            value={price}
-            onChangeText={setPrice}
-            keyboardType="numeric"
-            style={styles.input}
-            error={!!errors.price}
-            right={<TextInput.Affix text="ريال" />}
-          />
-          {errors.price && (
-            <HelperText type="error" visible={!!errors.price}>
-              {errors.price}
-            </HelperText>
-          )}
-          
-          {/* ملاحظات */}
-          <View style={styles.notesContainer}>
-            <Text style={styles.label}>ملاحظات (اختياري)</Text>
+          <View style={styles.formGroup}>
+            <Text style={styles.inputLabel}>قراءة العداد الحالية:</Text>
             <TextInput
-              value={notes}
-              onChangeText={setNotes}
               mode="outlined"
-              multiline
-              numberOfLines={4}
-              style={styles.notesInput}
+              value={odometer}
+              onChangeText={setOdometer}
+              keyboardType="numeric"
+              placeholder="أدخل قراءة العداد"
+              right={<TextInput.Affix text="كم" />}
+              style={styles.input}
             />
           </View>
           
-          <Button
-            mode="contained"
-            onPress={handleSubmit}
-            loading={loading}
-            disabled={loading}
-            style={styles.submitButton}
-          >
-            إضافة الخدمة
-          </Button>
-        </ScrollView>
-      </KeyboardAvoidingView>
-      
-      {loading && <Loading fullScreen message="جاري إضافة الخدمة..." />}
+          <View style={styles.formGroup}>
+            <Text style={styles.inputLabel}>نوع الزيت:</Text>
+            <TextInput
+              mode="outlined"
+              value={oilType}
+              onChangeText={setOilType}
+              placeholder="مثال: Mobil 1, Castrol Edge"
+              style={styles.input}
+            />
+          </View>
+          
+          <View style={styles.formGroup}>
+            <Text style={styles.inputLabel}>تصنيف الزيت:</Text>
+            <TextInput
+              mode="outlined"
+              value={oilGrade}
+              onChangeText={setOilGrade}
+              placeholder="مثال: 5W-30, 10W-40"
+              style={styles.input}
+            />
+          </View>
+          
+          <View style={styles.formGroup}>
+            <Text style={styles.inputLabel}>قراءة العداد للتغيير القادم:</Text>
+            <TextInput
+              mode="outlined"
+              value={nextChangeOdometer}
+              onChangeText={setNextChangeOdometer}
+              keyboardType="numeric"
+              placeholder="أدخل قراءة العداد للتغيير القادم"
+              right={<TextInput.Affix text="كم" />}
+              style={styles.input}
+            />
+          </View>
+          
+          <View style={styles.formGroup}>
+            <Text style={styles.sectionTitle}>الفلاتر المغيرة:</Text>
+            
+            <View style={styles.filtersGroup}>
+              <View style={styles.filterItem}>
+                <Checkbox
+                  status={oilFilterChanged ? 'checked' : 'unchecked'}
+                  onPress={() => setOilFilterChanged(!oilFilterChanged)}
+                  color={COLORS.primary}
+                />
+                <Text style={styles.filterLabel}>فلتر زيت</Text>
+              </View>
+              
+              <View style={styles.filterItem}>
+                <Checkbox
+                  status={airFilterChanged ? 'checked' : 'unchecked'}
+                  onPress={() => setAirFilterChanged(!airFilterChanged)}
+                  color={COLORS.primary}
+                />
+                <Text style={styles.filterLabel}>فلتر هواء</Text>
+              </View>
+              
+              <View style={styles.filterItem}>
+                <Checkbox
+                  status={cabinFilterChanged ? 'checked' : 'unchecked'}
+                  onPress={() => setCabinFilterChanged(!cabinFilterChanged)}
+                  color={COLORS.primary}
+                />
+                <Text style={styles.filterLabel}>فلتر مكيف</Text>
+              </View>
+            </View>
+          </View>
+          
+          <View style={styles.formGroup}>
+            <Text style={styles.inputLabel}>تكلفة الخدمة:</Text>
+            <TextInput
+              mode="outlined"
+              value={price}
+              onChangeText={setPrice}
+              keyboardType="numeric"
+              placeholder="أدخل التكلفة"
+              right={<TextInput.Affix text="ريال" />}
+              style={styles.input}
+            />
+          </View>
+          
+          <View style={styles.formGroup}>
+            <Text style={styles.inputLabel}>ملاحظات:</Text>
+            <TextInput
+              mode="outlined"
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="أدخل أي ملاحظات إضافية"
+              multiline
+              numberOfLines={4}
+              style={styles.textArea}
+            />
+          </View>
+        </Surface>
+        
+        <Button
+          mode="contained"
+          onPress={handleSubmit}
+          loading={submitting}
+          disabled={submitting}
+          style={styles.submitButton}
+          labelStyle={styles.submitButtonLabel}
+        >
+          حفظ تغيير الزيت
+        </Button>
+      </ScrollView>
     </View>
   );
 }
@@ -351,92 +378,124 @@ export default function AddServiceVisitScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: '#f5f7fa',
   },
-  keyboardAvoidContainer: {
-    flex: 1,
+  header: {
+    backgroundColor: COLORS.primary,
   },
   scrollContent: {
     padding: SPACING.md,
+    paddingBottom: SPACING.xxl,
   },
-  carInfoContainer: {
-    backgroundColor: COLORS.primary + '15', // شفافية منخفضة
+  carInfoCard: {
     padding: SPACING.md,
-    borderRadius: 8,
     marginBottom: SPACING.md,
+    borderRadius: 10,
+    elevation: 2,
   },
-  carTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: SPACING.xs,
+  carInfoHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  carDetail: {
-    fontSize: 14,
-    color: COLORS.gray,
-    marginBottom: SPACING.xs / 2,
-  },
-  divider: {
-    marginVertical: SPACING.md,
-  },
-  sectionTitle: {
+  carInfoTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: SPACING.md,
+    marginRight: SPACING.sm,
     color: COLORS.primary,
   },
-  inputContainer: {
+  divider: {
+    marginVertical: SPACING.sm,
+  },
+  carInfoRow: {
+    flexDirection: 'row',
+    marginBottom: SPACING.sm,
+  },
+  carInfoItem: {
+    flex: 1,
+  },
+  carInfoLabel: {
+    fontSize: 14,
+    color: COLORS.gray,
+    marginBottom: 2,
+  },
+  carInfoValue: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  formCard: {
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderRadius: 10,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginRight: SPACING.sm,
+    color: COLORS.primary,
+  },
+  formGroup: {
     marginBottom: SPACING.md,
   },
   inputLabel: {
-    fontSize: 14,
-    marginBottom: SPACING.xs,
-    color: COLORS.black,
-    fontWeight: '500',
-  },
-  dropdownButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
-    borderRadius: 8,
-    padding: SPACING.sm,
-    backgroundColor: COLORS.white,
-    height: 48,
-  },
-  label: {
-    fontSize: 14,
-    marginBottom: SPACING.xs,
-    color: COLORS.black,
-    fontWeight: '500',
-  },
-  dateButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
-    borderRadius: 8,
-    padding: SPACING.sm,
-    backgroundColor: COLORS.white,
-    height: 48,
-  },
-  dateIcon: {
-    marginRight: SPACING.sm,
-  },
-  dateText: {
     fontSize: 16,
-  },
-  notesContainer: {
-    marginBottom: SPACING.md,
-  },
-  notesInput: {
-    backgroundColor: COLORS.white,
-  },
-  submitButton: {
-    marginTop: SPACING.lg,
-    marginBottom: SPACING.xl,
+    color: COLORS.dark,
+    marginBottom: SPACING.xs,
   },
   input: {
     backgroundColor: COLORS.white,
+  },
+  textArea: {
+    backgroundColor: COLORS.white,
+    minHeight: 100,
+  },
+  dateButton: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: SPACING.md,
+    backgroundColor: COLORS.white,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: COLORS.gray,
+  },
+  dateText: {
+    fontSize: 16,
+    color: COLORS.dark,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: SPACING.sm,
+    color: COLORS.primary,
+  },
+  filtersGroup: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: SPACING.sm,
+  },
+  filterItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '50%',
+    marginBottom: SPACING.xs,
+  },
+  filterLabel: {
+    fontSize: 16,
+    marginLeft: 4,
+  },
+  submitButton: {
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.xxl,
+    padding: SPACING.xs,
+    backgroundColor: COLORS.primary,
+  },
+  submitButtonLabel: {
+    fontSize: 18,
+    paddingVertical: SPACING.xs,
   },
 }); 

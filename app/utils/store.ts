@@ -1,14 +1,15 @@
 // @ts-nocheck
 import { create } from 'zustand';
 import { User, UserRole } from '../types';
+import { AuthUser } from '../services/auth';
 
 // مخزن حالة المصادقة
 interface AuthState {
-  user: User | null;
+  user: AuthUser | null;
   token: string | null;
   isAuthenticated: boolean;
   session: any | null;
-  setUser: (user: User | null) => void;
+  setUser: (user: AuthUser | null) => void;
   setToken: (token: string | null) => void;
   setIsAuthenticated: (isAuthenticated: boolean) => void;
   logout: () => void;
@@ -24,9 +25,9 @@ export const useAuthStore = create<AuthState>((set) => ({
   setUser: (user) => set({ user, isAuthenticated: !!user }),
   setToken: (token) => set({ token }),
   setIsAuthenticated: (isAuthenticated) => set({ isAuthenticated }),
-  logout: () => set({ user: null, token: null, isAuthenticated: false }),
+  logout: () => set({ user: null, token: null, isAuthenticated: false, session: null }),
   setSession: (session) => set({ session }),
-  reset: () => set({ user: null, token: null, isAuthenticated: false, session: null }),
+  reset: () => set({ user: null, token: null, isAuthenticated: false, session: null })
 }));
 
 // تصدير افتراضي لدعم NOBRIDGE

@@ -8,20 +8,27 @@ export default {
   default: {
     screenOptions: {
       headerShown: false,
-      animation: Platform.OS === 'ios' ? 'default' : 'fade',
-      presentation: 'card',
       contentStyle: { backgroundColor: '#fff' },
       
-      // خيارات للأجهزة المحمولة فقط
+      // خيارات مشتركة لجميع المنصات
+      gestureEnabled: true,
+      animationEnabled: true,
+      
+      // خيارات مخصصة حسب المنصة
       ...Platform.select({
+        web: {
+          animation: 'fade',
+        },
         ios: {
-          gestureEnabled: true,
           fullScreenGestureEnabled: true,
+          animation: 'default',
+          presentation: 'card',
+          gestureDirection: 'horizontal',
         },
         android: {
-          gestureEnabled: true,
-          animationEnabled: true,
-          animation: 'fade',
+          animation: 'slide_from_right',
+          presentation: 'card',
+          gestureDirection: 'horizontal',
         }
       }),
     },

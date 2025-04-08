@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Alert } from 'react-native';
-import { Text, Appbar, Card, Button, Chip, ActivityIndicator, Dialog, Portal, TextInput } from 'react-native-paper';
+import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { Text, Appbar, Card, Button, Chip, ActivityIndicator, Dialog, Portal, TextInput, FAB, Modal } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import { useAuthStore } from '../utils/store';
 import { supabase } from '../config';
@@ -16,6 +16,20 @@ export default function ShopsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [dialogVisible, setDialogVisible] = useState(false);
   const [shopToDisable, setShopToDisable] = useState(null);
+  
+  // متغيرات لإضافة محل جديد
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [newShopData, setNewShopData] = useState({
+    name: '',
+    address: '',
+    phone: '',
+    email: '',
+    owner_email: '',
+    owner_name: '',
+    owner_phone: '',
+  });
+  const [errors, setErrors] = useState({});
 
   useEffect(() => {
     loadShops();
@@ -179,10 +193,160 @@ export default function ShopsScreen() {
     </Card>
   );
 
+  // دالة للتحقق من صحة بيانات المحل الجديد
+  const validateShopData = () => {
+    const newErrors = {};
+    
+    if (!newShopData.name.trim()) {
+      newErrors.name = 'يرجى إدخال اسم المحل';
+    }
+    
+    if (!newShopData.owner_email.trim()) {
+      newErrors.owner_email = 'يرجى إدخال البريد الإلكتروني لمالك المحل';
+    } else if (!/\S+@\S+\.\S+/.test(newShopData.owner_email)) {
+      newErrors.owner_email = 'يرجى إدخال بريد إلكتروني صحيح';
+    }
+    
+    if (!newShopData.owner_name.trim()) {
+      newErrors.owner_name = 'يرجى إدخال اسم مالك المحل';
+    }
+    
+    if (!newShopData.phone.trim()) {
+      newErrors.phone = 'يرجى إدخال رقم هاتف المحل';
+    }
+    
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  // دالة لإنشاء مالك المحل
+  const createShopOwner = async () => {
+    try {
+      // التحقق من وجود مستخدم بنفس البريد الإلكتروني
+      const { data: existingUser, error: checkError } = await supabase
+        .from('profiles')
+        .select('id, email')
+        .eq('email', newShopData.owner_email)
+        .maybeSingle();
+      
+      if (checkError) throw checkError;
+      
+      // إذا كان المستخدم موجود بالفعل، نحصل على المعرف الخاص به
+      if (existingUser) {
+        return { ownerId: existingUser.id, isExisting: true };
+      }
+      
+      // إنشاء كلمة مرور عشوائية
+      const randomPassword = Math.random().toString(36).slice(-8);
+      
+      // إنشاء مستخدم جديد في Supabase Authentication
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        email: newShopData.owner_email,
+        password: randomPassword,
+        email_confirm: true,
+      });
+      
+      if (authError) throw authError;
+      
+      // إنشاء ملف تعريف المستخدم
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: authData.user.id,
+          email: newShopData.owner_email,
+          full_name: newShopData.owner_name,
+          phone: newShopData.owner_phone,
+          user_type: 'shop_owner',
+          status: 'active',
+          created_at: new Date(),
+          updated_at: new Date()
+        })
+        .select()
+        .single();
+      
+      if (profileError) throw profileError;
+      
+      return { 
+        ownerId: authData.user.id, 
+        isExisting: false,
+        password: randomPassword
+      };
+    } catch (error) {
+      console.error('فشل في إنشاء مالك المحل:', error);
+      throw error;
+    }
+  };
+
+  // دالة لإنشاء المحل
+  const createShop = async () => {
+    if (!validateShopData()) return;
+    
+    setCreateLoading(true);
+    
+    try {
+      // إنشاء مالك المحل أو استخدام واحد موجود
+      const { ownerId, isExisting, password } = await createShopOwner();
+      
+      // إنشاء المحل
+      const { data: shopData, error: shopError } = await supabase
+        .from('shops')
+        .insert({
+          name: newShopData.name,
+          address: newShopData.address,
+          phone: newShopData.phone,
+          email: newShopData.email || newShopData.owner_email,
+          owner_id: ownerId,
+          verified: true,  // محل موثق لأنه تم إنشاؤه بواسطة مسؤول
+          status: 'active',
+          created_at: new Date(),
+          updated_at: new Date()
+        })
+        .select()
+        .single();
+      
+      if (shopError) throw shopError;
+      
+      // إظهار رسالة نجاح مع تفاصيل المستخدم إذا كان جديدًا
+      if (isExisting) {
+        Alert.alert(
+          'تم إنشاء المحل بنجاح',
+          `تم ربط المحل بالمستخدم الموجود مسبقًا (${newShopData.owner_email}).`
+        );
+      } else {
+        Alert.alert(
+          'تم إنشاء المحل والحساب بنجاح',
+          `تم إنشاء حساب جديد لمالك المحل.\n\nالبريد الإلكتروني: ${newShopData.owner_email}\nكلمة المرور: ${password}\n\nيرجى حفظ هذه المعلومات وإرسالها للمالك.`
+        );
+      }
+      
+      // إعادة تعيين البيانات وإغلاق المودال
+      setNewShopData({
+        name: '',
+        address: '',
+        phone: '',
+        email: '',
+        owner_email: '',
+        owner_name: '',
+        owner_phone: '',
+      });
+      setShowAddModal(false);
+      
+      // إعادة تحميل المحلات
+      await loadShops();
+      
+    } catch (error) {
+      console.error('فشل في إنشاء المحل:', error);
+      Alert.alert('خطأ', 'فشل في إنشاء المحل. يرجى المحاولة مرة أخرى.');
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Appbar.Header>
         <Appbar.Content title="محلات الصيانة" />
+        <Appbar.Action icon="plus" onPress={() => setShowAddModal(true)} />
       </Appbar.Header>
       
       <View style={styles.searchContainer}>
@@ -229,6 +393,124 @@ export default function ShopsScreen() {
         </>
       )}
       
+      {/* زر إضافة محل جديد */}
+      <FAB
+        style={styles.fab}
+        icon="plus"
+        label="إضافة محل"
+        onPress={() => setShowAddModal(true)}
+      />
+      
+      {/* مودال إضافة محل جديد */}
+      <Portal>
+        <Modal
+          visible={showAddModal}
+          onDismiss={() => setShowAddModal(false)}
+          contentContainerStyle={styles.modalContainer}
+        >
+          <Text style={styles.modalTitle}>إضافة محل جديد</Text>
+          
+          <ScrollView style={styles.modalScroll}>
+            <Text style={styles.sectionTitle}>معلومات المحل</Text>
+            
+            <TextInput
+              label="اسم المحل *"
+              value={newShopData.name}
+              onChangeText={(text) => setNewShopData({...newShopData, name: text})}
+              mode="outlined"
+              style={styles.input}
+              error={!!errors.name}
+            />
+            {errors.name ? <Text style={styles.errorText}>{errors.name}</Text> : null}
+            
+            <TextInput
+              label="عنوان المحل"
+              value={newShopData.address}
+              onChangeText={(text) => setNewShopData({...newShopData, address: text})}
+              mode="outlined"
+              style={styles.input}
+            />
+            
+            <TextInput
+              label="رقم هاتف المحل *"
+              value={newShopData.phone}
+              onChangeText={(text) => setNewShopData({...newShopData, phone: text})}
+              keyboardType="phone-pad"
+              mode="outlined"
+              style={styles.input}
+              error={!!errors.phone}
+            />
+            {errors.phone ? <Text style={styles.errorText}>{errors.phone}</Text> : null}
+            
+            <TextInput
+              label="بريد المحل الإلكتروني"
+              value={newShopData.email}
+              onChangeText={(text) => setNewShopData({...newShopData, email: text})}
+              keyboardType="email-address"
+              mode="outlined"
+              style={styles.input}
+            />
+            
+            <Text style={styles.sectionTitle}>معلومات المالك</Text>
+            
+            <TextInput
+              label="اسم المالك *"
+              value={newShopData.owner_name}
+              onChangeText={(text) => setNewShopData({...newShopData, owner_name: text})}
+              mode="outlined"
+              style={styles.input}
+              error={!!errors.owner_name}
+            />
+            {errors.owner_name ? <Text style={styles.errorText}>{errors.owner_name}</Text> : null}
+            
+            <TextInput
+              label="بريد المالك الإلكتروني *"
+              value={newShopData.owner_email}
+              onChangeText={(text) => setNewShopData({...newShopData, owner_email: text})}
+              keyboardType="email-address"
+              mode="outlined"
+              style={styles.input}
+              error={!!errors.owner_email}
+            />
+            {errors.owner_email ? <Text style={styles.errorText}>{errors.owner_email}</Text> : null}
+            
+            <TextInput
+              label="رقم هاتف المالك"
+              value={newShopData.owner_phone}
+              onChangeText={(text) => setNewShopData({...newShopData, owner_phone: text})}
+              keyboardType="phone-pad"
+              mode="outlined"
+              style={styles.input}
+            />
+            
+            <Text style={styles.noteText}>
+              * في حالة وجود مستخدم بنفس البريد الإلكتروني، سيتم ربط المحل به بدلاً من إنشاء مستخدم جديد.
+            </Text>
+            
+            <View style={styles.modalButtons}>
+              <Button
+                mode="outlined"
+                onPress={() => setShowAddModal(false)}
+                style={styles.modalButton}
+              >
+                إلغاء
+              </Button>
+              
+              <Button
+                mode="contained"
+                onPress={createShop}
+                style={styles.modalButton}
+                loading={createLoading}
+                disabled={createLoading}
+              >
+                إنشاء المحل
+              </Button>
+            </View>
+          </ScrollView>
+        </Modal>
+      </Portal>
+      
+      {/* رسالة تأكيد تعطيل المحل */}
       <Portal>
         <Dialog visible={dialogVisible} onDismiss={() => setDialogVisible(false)}>
           <Dialog.Icon icon="alert" />
@@ -349,5 +631,62 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginVertical: SPACING.md,
     textAlign: 'center',
+  },
+  fab: {
+    position: 'absolute',
+    margin: 16,
+    right: 0,
+    bottom: 0,
+    backgroundColor: COLORS.primary,
+  },
+  modalContainer: {
+    backgroundColor: 'white',
+    padding: 20,
+    margin: 20,
+    borderRadius: 10,
+    maxHeight: '80%',
+  },
+  modalScroll: {
+    marginBottom: 10,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+    color: COLORS.primary,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginTop: 10,
+    marginBottom: 10,
+    color: COLORS.primary,
+  },
+  input: {
+    marginBottom: 10,
+  },
+  errorText: {
+    color: COLORS.error,
+    fontSize: 12,
+    marginTop: -8,
+    marginBottom: 10,
+  },
+  noteText: {
+    color: COLORS.gray,
+    fontSize: 12,
+    marginTop: 10,
+    marginBottom: 20,
+    fontStyle: 'italic',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  modalButton: {
+    flex: 1,
+    marginHorizontal: 5,
   },
 }); 

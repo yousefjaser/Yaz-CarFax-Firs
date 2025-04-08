@@ -1,5 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import 'react-native-url-polyfill/auto';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 
 const ENV = {
   dev: {
@@ -23,8 +25,45 @@ export const SUPABASE_URL = currentEnv.SUPABASE_URL;
 export const SUPABASE_KEY = currentEnv.SUPABASE_KEY;
 export const API_URL = currentEnv.API_URL;
 
-// إنشاء عميل Supabase
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+// إنشاء مخزن مخصص للجلسات
+const createCustomStorage = () => {
+  return {
+    async getItem(key: string) {
+      if (Platform.OS === 'web') {
+        return localStorage.getItem(key);
+      }
+      return AsyncStorage.getItem(key);
+    },
+    async setItem(key: string, value: string) {
+      if (Platform.OS === 'web') {
+        localStorage.setItem(key, value);
+      } else {
+        await AsyncStorage.setItem(key, value);
+      }
+    },
+    async removeItem(key: string) {
+      if (Platform.OS === 'web') {
+        localStorage.removeItem(key);
+      } else {
+        await AsyncStorage.removeItem(key);
+      }
+    }
+  };
+};
+
+// إنشاء عميل Supabase مع دعم استمرارية الجلسات
+export const supabase = createClient(
+  SUPABASE_URL, 
+  SUPABASE_KEY,
+  {
+    auth: {
+      storage: createCustomStorage(),
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: Platform.OS === 'web',
+    }
+  }
+);
 
 // تكوين التطبيق العام
 export const APP_CONFIG = {

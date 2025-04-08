@@ -1,6 +1,6 @@
 // @ts-nocheck
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Platform, SafeAreaView, Alert } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Platform, SafeAreaView, Alert, Animated, Easing, Dimensions, RefreshControl, I18nManager } from 'react-native';
 import { Text, Badge, Surface } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import { useAuthStore } from '../utils/store';
@@ -8,34 +8,228 @@ import { supabase } from '../config';
 import Loading from '../components/Loading';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
-import { useNavigation, DrawerActions } from '@react-navigation/native';
 
-export default function ShopDashboardScreen() {
+// تطبيق RTL
+if (I18nManager && !I18nManager.isRTL) {
+  // التأكد فقط من وجود RTL
+  console.log("تطبيق RTL في الأنماط");
+}
+
+// الحصول على أبعاد الشاشة
+const { width } = Dimensions.get('window');
+
+// مكون السيارات المسجلة المتحرك - تصميم احترافي
+const ProfessionalCarsCounter = ({ count }) => {
+  // قيمة متحركة للعداد
+  const countAnim = useRef(new Animated.Value(0)).current;
+  // قيمة متحركة للحركة العمودية
+  const moveAnim = useRef(new Animated.Value(20)).current;
+  // قيمة متحركة للتلاشي
+  const opacityAnim = useRef(new Animated.Value(0)).current;
+  // قيمة لشريط التقدم
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  // قيمة للتأثير الاحتفالي
+  const celebrationAnim = useRef(new Animated.Value(0)).current;
+  
+  // قيمة العرض
+  const [displayCount, setDisplayCount] = useState(0);
+  
+  // القيمة الاستهدافية للسيارات
+  const targetValue = 200;
+  
+  // حساب النسبة المئوية
+  const percentage = Math.min(100, Math.round((count / targetValue) * 100));
+  
+  // التحقق من تحقيق الهدف
+  const isGoalReached = count >= targetValue;
+  
+  useEffect(() => {
+    // التأكد من أن القيمة رقم صحيح
+    const finalCount = typeof count === 'number' ? count : 0;
+    
+    // متابعة التغييرات في قيمة العداد
+    const listener = countAnim.addListener(({ value }) => {
+      setDisplayCount(Math.floor(value));
+    });
+    
+    // سلسلة من الانميشن الأكثر احترافية
+    Animated.sequence([
+      // ظهور تدريجي
+      Animated.timing(opacityAnim, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+      
+      // حركة لأعلى
+      Animated.timing(moveAnim, {
+        toValue: 0,
+        duration: 600,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      
+      // تقدم الشريط والعداد معاً
+      Animated.parallel([
+        // العداد المتزايد
+        Animated.timing(countAnim, {
+          toValue: finalCount,
+          duration: 1500,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        }),
+        
+        // شريط التقدم
+        Animated.timing(progressAnim, {
+          toValue: percentage,
+          duration: 1500,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false,
+        })
+      ])
+    ]).start();
+    
+    // إضافة تأثير احتفالي إذا تم تحقيق الهدف
+    if (isGoalReached) {
+      // انيميشن للاحتفال بتحقيق الهدف - نبضة متكررة
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(celebrationAnim, {
+            toValue: 1,
+            duration: 500,
+            easing: Easing.linear,
+            useNativeDriver: true,
+          }),
+          Animated.timing(celebrationAnim, {
+            toValue: 0,
+            duration: 500,
+            easing: Easing.linear,
+            useNativeDriver: true,
+          }),
+        ]),
+        { iterations: -1 } // تكرار لا نهائي
+      ).start();
+    }
+    
+    // تنظيف عند الخروج
+    return () => {
+      countAnim.removeListener(listener);
+    };
+  }, [count]);
+  
+  // حساب عرض شريط التقدم
+  const progressWidth = progressAnim.interpolate({
+    inputRange: [0, 100],
+    outputRange: ['0%', '100%'],
+  });
+  
+  // تأثير نبضي للاحتفال بالإنجاز
+  const pulseScale = celebrationAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.05],
+  });
+  
+  // تأثير لوني للاحتفال
+  const celebrationBorder = celebrationAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['rgba(39, 174, 96, 0.3)', 'rgba(39, 174, 96, 0.8)'],
+  });
+  
+  // ألوان تدرج للخلفية حسب النسبة المئوية
+  const getProgressColor = () => {
+    if (isGoalReached) return '#FFD700'; // ذهبي للهدف المكتمل
+    if (percentage >= 75) return '#27AE60'; // أخضر للنسبة العالية
+    if (percentage >= 40) return '#3498DB'; // أزرق للنسبة المتوسطة
+    return '#F39C12'; // برتقالي للنسبة المنخفضة
+  };
+  
+  return (
+    <Animated.View style={{
+      transform: isGoalReached ? [{ scale: pulseScale }] : []
+    }}>
+      <Surface 
+        style={[
+          styles.professionalCounterCard,
+          isGoalReached && {
+            borderWidth: 2,
+            borderColor: celebrationBorder
+          }
+        ]}
+      >
+        <Animated.View 
+          style={[
+            styles.professionalCounterContent,
+            {
+              opacity: opacityAnim,
+              transform: [{ translateY: moveAnim }]
+            }
+          ]}
+        >
+          <View style={styles.professionalCounterHeader}>
+            <View style={styles.professionalCounterIconContainer}>
+              <Icon name="car-multiple" size={24} color="#3498DB" />
+            </View>
+            <Text style={styles.professionalCounterTitle}>سيارات المحل</Text>
+          </View>
+          
+          <View style={styles.professionalCountValueSection}>
+            <Text style={styles.professionalCounterSubtext}>سيارة</Text>
+            <Animated.Text style={styles.professionalCounterValue}>
+              {displayCount}
+            </Animated.Text>
+          </View>
+          
+          <View style={styles.professionalProgressSection}>
+            <View style={styles.professionalProgressContainer}>
+              <Animated.View 
+                style={[
+                  styles.professionalProgressBar,
+                  {
+                    width: progressWidth,
+                    backgroundColor: getProgressColor()
+                  }
+                ]}
+              />
+            </View>
+            <View style={styles.professionalProgressLabels}>
+              <Text style={styles.professionalTargetLabel}>
+                {isGoalReached ? "تم تحقيق الهدف!" : `هدفك: ${targetValue} سيارة`}
+              </Text>
+              <Text style={styles.professionalProgressLabel}>
+                {percentage}% {isGoalReached ? "مكتمل" : "من الهدف"}
+              </Text>
+            </View>
+          </View>
+          
+          {isGoalReached && (
+            <View style={styles.goalCompletedContainer}>
+              <Icon name="trophy" size={28} color="#FFD700" />
+              <Text style={styles.goalCompletedText}>تهانينا! لقد حققت الهدف</Text>
+            </View>
+          )}
+        </Animated.View>
+      </Surface>
+    </Animated.View>
+  );
+};
+
+export default function ShopDashboard() {
   const router = useRouter();
   const { user } = useAuthStore();
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
-    rating: 4.8,
-    weeklyServices: 23,
-    registeredCars: 156,
+    registeredCars: 0,
     notifications: 3,
   });
   
-  // استخدام مكون التنقل للوصول إلى الدراور
-  const navigation = useNavigation();
-  
-  // فتح الدراور - بطريقة تعمل مع الويب والأجهزة المحمولة
-  const openDrawer = () => {
-    if (Platform.OS === 'web') {
-      // على الويب، استخدم مسار مباشر للقائمة
-      router.push('/shop/menu');
-    } else {
-      // على الأجهزة المحمولة، استخدم الدراور
-      navigation.dispatch(DrawerActions.openDrawer());
+  useEffect(() => {
+    if (global) {
+      global.router = router;
     }
-  };
-
+  }, [router]);
+  
   useEffect(() => {
     loadProfileData();
   }, []);
@@ -44,7 +238,7 @@ export default function ShopDashboardScreen() {
     if (!user) return;
     
     try {
-      setLoading(true);
+      if (!refreshing) setLoading(true);
       console.log("بدء تحميل بيانات المستخدم:", user.id);
       
       // 1. تحميل معلومات الملف الشخصي
@@ -81,6 +275,7 @@ export default function ShopDashboardScreen() {
           console.error('فشل في تحميل معلومات المحل:', error);
         } else {
           shopData = data;
+          console.log("تم تحميل بيانات المحل بنجاح:", shopData);
         }
       } catch (error) {
         console.error('خطأ في استعلام جدول shops:', error);
@@ -88,111 +283,109 @@ export default function ShopDashboardScreen() {
       }
       
       if (!shopData) {
+        console.log("لم يتم العثور على بيانات المحل للمستخدم:", user.id);
         setLoading(false);
         return;
       }
       
-      // 3. تحميل عدد الخدمات هذا الأسبوع
-      let weeklyServicesCount = 0;
-      try {
-        const startOfWeek = new Date();
-        startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
-        startOfWeek.setHours(0, 0, 0, 0);
-        
-        const { count, error } = await supabase
-          .from('service_visits')
-          .select('id', { count: 'exact', head: true })
-          .eq('shop_id', shopData.id)
-          .gte('created_at', startOfWeek.toISOString());
-        
-        if (!error && count !== null) {
-          weeklyServicesCount = count;
-        }
-      } catch (error) {
-        console.error('خطأ في استعلام الخدمات:', error);
-        // استمر على أي حال
-      }
+      console.log("معرف المحل المستخدم في الاستعلام:", shopData.id);
       
-      // 4. تحميل عدد السيارات المسجلة
+      // تحميل عدد السيارات المسجلة من جدول cars_new
       let carsCount = 0;
       try {
-        console.log("جاري استعلام السيارات للمحل:", shopData.id);
-        const { count, error } = await supabase
-          .from('cars')
-          .select('id', { count: 'exact', head: true })
-          .eq('last_service_shop_id', shopData.id);
+        console.log("جاري استعلام السيارات من جدول cars_new للمحل:", shopData.id);
         
-        console.log("نتيجة استعلام السيارات:", { count, error });
+        const { data, error } = await supabase
+          .from('cars_new')
+          .select('*')
+          .eq('shop_id', shopData.id);
         
-        if (!error && count !== null) {
-          carsCount = count;
+        if (error) {
+          console.error('فشل استعلام السيارات من cars_new:', error);
+        } else {
+          console.log("نتيجة استعلام جدول cars_new:", { count: data?.length, data });
+          
+          if (data && data.length > 0) {
+            carsCount = data.length;
+            console.log("تم العثور على", carsCount, "سيارة في جدول cars_new للمحل:", shopData.id);
+            console.log("عينة من بيانات السيارات:", JSON.stringify(data[0]));
+          } else {
+            console.log("لم يتم العثور على سيارات في جدول cars_new للمحل:", shopData.id);
+          }
         }
       } catch (error) {
-        console.error('خطأ في استعلام السيارات:', error);
-        // استمر على أي حال
+        console.error('خطأ في استعلام جدول cars_new:', error);
       }
       
-      // بديل: تحميل عدد السيارات بطريقة أخرى إذا كان العدد 0
+      // إذا لم يتم العثور على سيارات، نقوم بتعيين قيمة افتراضية للاختبار
       if (carsCount === 0) {
-        try {
-          console.log("محاولة ثانية لاستعلام السيارات بطريقة مختلفة");
-          const { data, error } = await supabase
-            .from('cars')
-            .select('id')
-            .eq('last_service_shop_id', shopData.id);
-          
-          if (!error && data) {
-            console.log("نتيجة الاستعلام البديل:", { count: data.length, data });
-            carsCount = data.length;
-          }
-        } catch (error) {
-          console.error('خطأ في الاستعلام البديل للسيارات:', error);
-        }
+        console.log("تحذير: لم يتم العثور على سيارات في cars_new، استخدام قيمة افتراضية 5 للتجربة");
+        // يمكنك تعليق هذا السطر بعد التأكد من أن الاستعلام يعمل بشكل صحيح
+        // carsCount = 5; 
       }
       
       setStats({
-        rating: shopData.rating || 4.8,
-        weeklyServices: weeklyServicesCount || 0,
         registeredCars: carsCount || 0,
-        notifications: 3, // هذا ثابت حاليًا
+        notifications: 3,
       });
       
-      console.log("تم تعيين الإحصائيات:", {
-        rating: shopData.rating || 4.8,
-        weeklyServices: weeklyServicesCount || 0,
-        registeredCars: carsCount || 0,
-      });
+      console.log("تم تعيين العدد النهائي للسيارات:", carsCount || 0);
     } catch (error) {
       console.error('حدث خطأ أثناء تحميل البيانات:', error);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
   
   const handleAddCar = () => {
+    console.log('إضافة سيارة جديدة');
     router.push('/shop/add-car');
   };
   
   const handleScanQR = () => {
+    console.log('الانتقال إلى صفحة المسح');
     router.push('/shop/scan');
   };
 
-  if (loading) {
+  const openDrawer = () => {
+    try {
+      // نستخدم الdrawer المخصص فقط
+      if (global && global.openDrawer) {
+        global.openDrawer();
+      }
+      // نلغي الخيار البديل لتجنب التعارض مع الdrawer المخصص
+    } catch (error) {
+      console.error('خطأ في فتح القائمة:', error);
+    }
+  };
+
+  // معالج السحب للتحديث
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    console.log("تحديث البيانات...");
+    loadProfileData();
+  }, []);
+
+  if (loading && !refreshing) {
     return <Loading fullScreen message="جاري تحميل البيانات..." />;
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar 
-        backgroundColor="#FFF"
-        barStyle="dark-content"
+        backgroundColor={COLORS.primary}
+        barStyle="light-content"
         translucent={false}
       />
       
       {/* شريط العنوان مع القائمة والإشعارات */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={openDrawer}>
-          <Icon name="menu" size={28} color="#FFF" />
+        <TouchableOpacity 
+          style={styles.menuButton}
+          onPress={openDrawer}
+        >
+          <Icon name="menu" size={28} color="#000" />
         </TouchableOpacity>
         
         <TouchableOpacity 
@@ -206,9 +399,26 @@ export default function ShopDashboardScreen() {
         </TouchableOpacity>
       </View>
       
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* العنوان والترحيب */}
+      <ScrollView 
+        style={styles.scrollView} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={['#3498db']}
+            tintColor={'#3498db'}
+            title={"سحب للتحديث..."}
+            titleColor={'#666'}
+          />
+        }
+        contentContainerStyle={styles.scrollViewContent}
+      >
+        {/* ترتيب وتصميم قسم الترحيب */}
         <View style={styles.welcomeSection}>
+          <View style={styles.shopIconContainer}>
+            <Icon name="store" size={40} color="#FFF" />
+          </View>
           <View style={styles.welcomeTextContainer}>
             <Text style={styles.welcomeText}>
               أهلاً بك <Text style={styles.waveEmoji}>👋</Text> في
@@ -216,52 +426,21 @@ export default function ShopDashboardScreen() {
             <Text style={styles.logoText}>Yaz Car</Text>
             <Text style={styles.subtitleText}>يوم جديد مليء بالإنجازات</Text>
           </View>
-          
-          <View style={styles.shopIconContainer}>
-            <Icon name="store" size={40} color="#FFF" />
-          </View>
         </View>
         
-        {/* إحصائيات */}
-        <View style={styles.statsContainer}>
-          <Surface style={styles.statCard}>
-            <View style={styles.statContent}>
-              <View style={[styles.statIconBg, { backgroundColor: '#1877F2' + '15' }]}>
-                <Icon name="star" size={30} color="#1877F2" />
-              </View>
-              <Text style={styles.statValue}>{stats.rating.toFixed(1)}</Text>
-              <Text style={styles.statLabel}>تقييم المحل</Text>
-            </View>
-          </Surface>
-          
-          <Surface style={styles.statCard}>
-            <View style={styles.statContent}>
-              <View style={[styles.statIconBg, { backgroundColor: '#FF9500' + '15' }]}>
-                <Icon name="wrench" size={30} color="#FF9500" />
-              </View>
-              <Text style={styles.statValue}>{stats.weeklyServices}</Text>
-              <Text style={styles.statLabel}>خدمة هذا الأسبوع</Text>
-            </View>
-          </Surface>
-          
-          <Surface style={styles.statCard}>
-            <View style={styles.statContent}>
-              <View style={[styles.statIconBg, { backgroundColor: '#2196F3' + '15' }]}>
-                <Icon name="car" size={30} color="#2196F3" />
-              </View>
-              <Text style={styles.statValue}>{stats.registeredCars !== undefined ? stats.registeredCars : '...'}</Text>
-              <Text style={styles.statLabel}>سيارة مسجلة</Text>
-            </View>
-          </Surface>
+        {/* انيميشن عدد السيارات المسجلة - التصميم الاحترافي الجديد */}
+        <View style={styles.professionalCounterContainer}>
+          <ProfessionalCarsCounter count={stats.registeredCars} />
         </View>
         
         {/* الإجراءات السريعة */}
         <View style={styles.quickActionsSection}>
           <Text style={styles.sectionTitle}>الإجراءات السريعة</Text>
           
+          {/* إضافة سيارة جديدة */}
           <TouchableOpacity 
-            style={styles.actionCard}
-            onPress={() => router.push('/shop/add-car')}
+            style={[styles.actionCard, { backgroundColor: '#27AE60' }]}
+            onPress={handleAddCar}
           >
             <View style={styles.actionCardContent}>
               <View style={styles.actionIconContainer}>
@@ -274,9 +453,10 @@ export default function ShopDashboardScreen() {
             </View>
           </TouchableOpacity>
           
+          {/* مسح QR */}
           <TouchableOpacity 
             style={[styles.actionCard, { backgroundColor: '#3498db' }]}
-            onPress={() => router.push('/shop/scan')}
+            onPress={handleScanQR}
           >
             <View style={styles.actionCardContent}>
               <View style={styles.actionIconContainer}>
@@ -299,11 +479,11 @@ export default function ShopDashboardScreen() {
               <Text style={styles.menuItemText}>السيارات</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/shop/service-categories')}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/shop/service-history')}>
               <View style={[styles.menuIconContainer, { backgroundColor: '#3498DB' + '15' }]}>
-                <Icon name="format-list-bulleted" size={24} color="#3498DB" />
+                <Icon name="history" size={24} color="#3498DB" />
               </View>
-              <Text style={styles.menuItemText}>فئات الخدمة</Text>
+              <Text style={styles.menuItemText}>سجل الخدمات</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -330,7 +510,7 @@ export default function ShopDashboardScreen() {
           <Text style={styles.navItemText}>التذكيرات</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/shop/profile')}>
+        <TouchableOpacity style={styles.navItem} onPress={openDrawer}>
           <Icon name="menu" size={22} color="#6c757d" />
           <Text style={styles.navItemText}>المزيد</Text>
         </TouchableOpacity>
@@ -343,14 +523,25 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: '#fff',
+    direction: 'rtl',
   },
   header: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 15,
     backgroundColor: '#FFF',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  menuButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   notificationIcon: {
     position: 'relative',
@@ -366,16 +557,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   welcomeSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: 'row-reverse',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 10,
     paddingBottom: 30,
     backgroundColor: '#FFF',
   },
+  shopIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#3498db',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 15,
+    marginRight: 0,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 3,
+  },
   welcomeTextContainer: {
     flex: 1,
+    alignItems: 'flex-end',
   },
   welcomeText: {
     fontSize: 16,
@@ -399,73 +609,9 @@ const styles = StyleSheet.create({
     marginTop: 5,
     textAlign: 'right',
   },
-  shopIconContainer: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: '#3498db',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 15,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 3,
-  },
-  statsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 15,
-    marginTop: -15,
-  },
-  statCard: {
-    flex: 1,
-    marginHorizontal: 5,
-    borderRadius: 12,
-    overflow: 'hidden',
-    backgroundColor: '#FFF',
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 2.84,
-    padding: 10,
-  },
-  statContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 10,
-  },
-  statIconBg: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 5,
-  },
-  statLabel: {
-    fontSize: 13,
-    color: '#777',
-    textAlign: 'center',
-    marginTop: 3,
-  },
   quickActionsSection: {
     padding: 20,
-    paddingTop: 20,
+    paddingTop: 0,
   },
   sectionTitle: {
     fontSize: 19,
@@ -473,6 +619,8 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     color: '#333',
     textAlign: 'right',
+    alignSelf: 'flex-start',
+    width: '100%',
   },
   actionCard: {
     backgroundColor: '#27AE60',
@@ -489,9 +637,9 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   actionCardContent: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     alignItems: 'center',
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-start',
   },
   actionIconContainer: {
     width: 60,
@@ -500,25 +648,28 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 15,
+    marginRight: 15,
+    marginLeft: 0,
   },
   actionTextContainer: {
     flex: 1,
-    alignItems: 'flex-end',
+    alignItems: 'flex-start',
   },
   actionCardTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#FFF',
     marginBottom: 5,
+    textAlign: 'right',
   },
   actionCardDesc: {
     fontSize: 14,
     color: '#FFF',
     opacity: 0.9,
+    textAlign: 'right',
   },
   menuGrid: {
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
   },
@@ -550,6 +701,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     fontWeight: '500',
+    textAlign: 'center',
   },
   floatingNavBar: {
     position: 'absolute',
@@ -559,7 +711,7 @@ const styles = StyleSheet.create({
     height: 65,
     backgroundColor: '#FFF',
     borderRadius: 35,
-    flexDirection: 'row',
+    flexDirection: 'row-reverse',
     justifyContent: 'space-around',
     alignItems: 'center',
     shadowColor: "#000",
@@ -598,8 +750,112 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#6c757d',
     marginTop: 3,
+    textAlign: 'center',
   },
   emptySection: {
     height: 100,
-  }
+  },
+  professionalCounterContainer: {
+    paddingHorizontal: 20,
+    marginBottom: 20,
+  },
+  professionalCounterCard: {
+    borderRadius: 15,
+    backgroundColor: '#FFF',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    padding: 20,
+    overflow: 'hidden',
+  },
+  professionalCounterContent: {
+    width: '100%',
+  },
+  professionalCounterHeader: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  professionalCounterTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'right',
+  },
+  professionalCounterIconContainer: {
+    width: 44,
+    height: 44,
+    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  professionalCountValueSection: {
+    flexDirection: 'row-reverse',
+    alignItems: 'baseline',
+    marginBottom: 25,
+    justifyContent: 'center',
+  },
+  professionalCounterValue: {
+    fontSize: 50,
+    fontWeight: 'bold',
+    color: '#3498DB',
+  },
+  professionalCounterSubtext: {
+    fontSize: 16,
+    color: '#666',
+    marginRight: 8,
+    marginLeft: 0,
+  },
+  professionalProgressSection: {
+    marginBottom: 10,
+  },
+  professionalProgressContainer: {
+    height: 10,
+    backgroundColor: '#F0F0F0',
+    borderRadius: 5,
+    overflow: 'hidden',
+    marginBottom: 10,
+  },
+  professionalProgressBar: {
+    height: '100%',
+    borderRadius: 5,
+  },
+  professionalProgressLabels: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+  },
+  professionalProgressLabel: {
+    fontSize: 13,
+    color: '#666',
+    fontWeight: '500',
+    textAlign: 'left',
+  },
+  professionalTargetLabel: {
+    fontSize: 13,
+    color: '#888',
+    textAlign: 'right',
+  },
+  scrollViewContent: {
+    direction: 'rtl',
+    textAlign: 'right',
+  },
+  goalCompletedContainer: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  goalCompletedText: {
+    color: '#d4af37',
+    fontWeight: 'bold',
+    marginRight: 8,
+    fontSize: 16,
+  },
 }); 

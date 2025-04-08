@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, RefreshControl } from 'react-native';
+import { View, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Share, Alert, Linking } from 'react-native';
 import { Appbar, Text, Card, Badge, Searchbar, Divider, FAB } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import { supabase } from '../config';
@@ -7,6 +7,14 @@ import { useAuthStore } from '../utils/store';
 import Loading from '../components/Loading';
 import { useRouter } from 'expo-router';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+
+// تحديث كائن الألوان لإضافة لون النجاح إذا لم يكن موجوداً
+const COLORS_EXTENDED = {
+  ...COLORS,
+  success: '#4CAF50',
+  warning: '#FFC107',
+  error: '#F44336',
+};
 
 export default function CarsListScreen() {
   const router = useRouter();
@@ -96,33 +104,108 @@ export default function CarsListScreen() {
     loadCars();
   };
 
+  const handleShareCar = async (car: any) => {
+    try {
+      const shareUrl = `${window.location.origin}/shop/public/car/${car.qr_id}`;
+      const shareMessage = `معلومات سيارة ${car.make} ${car.model} - ${car.plate_number}\n\nللإطلاع على تفاصيل السيارة والصيانة، اضغط على الرابط:\n${shareUrl}`;
+
+      await Share.share({
+        message: shareMessage,
+        url: shareUrl, // This will be used on iOS
+        title: `معلومات سيارة ${car.make} ${car.model}`,
+      });
+    } catch (error) {
+      Alert.alert('خطأ', 'حدث خطأ أثناء محاولة المشاركة');
+      console.error(error);
+    }
+  };
+
+  const handleCallCustomer = (phone: string) => {
+    if (phone) {
+      Linking.openURL(`tel:${phone}`);
+    } else {
+      Alert.alert('خطأ', 'رقم الهاتف غير متوفر');
+    }
+  };
+
   const renderItem = ({ item }: { item: any }) => (
-    <TouchableOpacity
-      onPress={() => router.push(`/shop/car-details/${item.qr_id}`)}
-    >
-      <Card style={styles.carCard}>
+    <Card style={styles.carCard}>
+      <TouchableOpacity
+        onPress={() => router.push(`/shop/public/car/${item.qr_id}`)}
+      >
         <Card.Content>
           <View style={styles.carHeader}>
-            <View>
+            <View style={styles.carInfo}>
               <Text style={styles.carTitle}>{item.make} {item.model}</Text>
-              <Text style={styles.carSubtitle}>سنة الصنع: {item.year}</Text>
+              <Text style={styles.carSubtitle}>
+                <Icon name="calendar" size={14} color={COLORS.gray} style={styles.smallIcon} />
+                {item.year || 'غير محدد'}
+                {item.color && (
+                  <>
+                    <Text style={styles.dotSeparator}>•</Text>
+                    <Icon name="palette" size={14} color={COLORS.gray} style={styles.smallIcon} />
+                    {item.color}
+                  </>
+                )}
+              </Text>
             </View>
             <View style={styles.badgeContainer}>
               <Badge style={styles.badge}>{item.plate_number}</Badge>
+              {item.last_oil_change_date && (
+                <View style={styles.serviceIndicator}>
+                  <Icon 
+                    name="check-circle" 
+                    size={16} 
+                    color={COLORS_EXTENDED.success} 
+                    style={styles.serviceIcon} 
+                  />
+                  <Text style={styles.serviceText}>تمت الصيانة</Text>
+                </View>
+              )}
             </View>
           </View>
           
           <Divider style={styles.divider} />
           
           <View style={styles.ownerInfo}>
-            <Icon name="account" size={20} color={COLORS.gray} style={styles.infoIcon} />
-            <Text style={styles.ownerName}>{item.customer?.name || 'غير معروف'}</Text>
-            <Icon name="phone" size={20} color={COLORS.gray} style={[styles.infoIcon, styles.phoneIcon]} />
-            <Text style={styles.ownerPhone}>{item.customer?.phone || 'غير متوفر'}</Text>
+            <View style={styles.ownerNameContainer}>
+              <Icon name="account" size={20} color={COLORS.gray} style={styles.infoIcon} />
+              <Text style={styles.ownerName}>{item.customer?.name || 'غير معروف'}</Text>
+            </View>
+            
+            {item.customer?.phone && (
+              <TouchableOpacity 
+                style={styles.phoneButton}
+                onPress={() => handleCallCustomer(item.customer?.phone)}
+              >
+                <Icon name="phone" size={18} color={COLORS_EXTENDED.success} />
+                <Text style={styles.phoneButtonText}>{item.customer?.phone}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          <Divider style={styles.divider} />
+          
+          <View style={styles.cardFooter}>
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push(`/shop/public/car/${item.qr_id}`)}
+            >
+              <Icon name="qrcode-scan" size={18} color={COLORS.primary} />
+              <Text style={styles.actionText}>عرض التفاصيل</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => handleShareCar(item)}
+            >
+              <Icon name="share-variant" size={18} color={COLORS.primary} />
+              <Text style={styles.actionText}>مشاركة</Text>
+            </TouchableOpacity>
           </View>
         </Card.Content>
-      </Card>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Card>
   );
 
   const EmptyList = () => (
@@ -139,10 +222,35 @@ export default function CarsListScreen() {
 
   return (
     <View style={styles.container}>
-      <Appbar.Header>
+      <Appbar.Header style={styles.header}>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content title="قائمة السيارات" />
+        <Appbar.Action icon="filter-variant" onPress={() => {
+          // هنا يمكن إضافة منطق تصفية السيارات لاحقاً
+          Alert.alert('تصفية السيارات', 'سيتم تنفيذ هذه الميزة قريباً');
+        }} />
       </Appbar.Header>
+
+      <View style={styles.statsContainer}>
+        <View style={styles.statCard}>
+          <Text style={styles.statNumber}>{filteredCars.length}</Text>
+          <Text style={styles.statLabel}>إجمالي السيارات</Text>
+        </View>
+        
+        <View style={[styles.statCard, { marginHorizontal: SPACING.md }]}>
+          <Text style={styles.statNumber}>
+            {filteredCars.filter(car => new Date(car.last_oil_change_date || 0) > new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)).length}
+          </Text>
+          <Text style={styles.statLabel}>تمت صيانتها حديثاً</Text>
+        </View>
+        
+        <View style={styles.statCard}>
+          <Text style={styles.statNumber}>
+            {filteredCars.filter(car => !car.last_oil_change_date).length}
+          </Text>
+          <Text style={styles.statLabel}>بحاجة للصيانة</Text>
+        </View>
+      </View>
 
       <Searchbar
         placeholder="البحث عن سيارة..."
@@ -178,6 +286,29 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
+  header: {
+    elevation: 0,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: SPACING.md,
+  },
+  statCard: {
+    flex: 1,
+    padding: SPACING.md,
+    backgroundColor: COLORS.white,
+    borderRadius: SPACING.sm,
+    elevation: 2,
+  },
+  statNumber: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  statLabel: {
+    fontSize: 14,
+    color: COLORS.gray,
+  },
   searchBar: {
     margin: SPACING.md,
     elevation: 2,
@@ -194,6 +325,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+  },
+  carInfo: {
+    flexDirection: 'column',
   },
   carTitle: {
     fontSize: 16,
@@ -214,9 +348,8 @@ const styles = StyleSheet.create({
     marginVertical: SPACING.sm,
   },
   ownerInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: SPACING.xs,
+    flexDirection: 'column',
+    paddingVertical: SPACING.sm,
   },
   infoIcon: {
     marginRight: SPACING.xs,
@@ -224,11 +357,26 @@ const styles = StyleSheet.create({
   phoneIcon: {
     marginLeft: SPACING.md,
   },
+  ownerNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: SPACING.xs,
+  },
   ownerName: {
     fontSize: 14,
   },
-  ownerPhone: {
-    fontSize: 14,
+  phoneButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: SPACING.xs,
+    backgroundColor: '#f0f8f0',
+    borderRadius: SPACING.xs,
+    alignSelf: 'flex-start',
+    marginRight: 'auto',
+  },
+  phoneButtonText: {
+    marginLeft: SPACING.xs,
+    color: COLORS_EXTENDED.success,
   },
   emptyContainer: {
     alignItems: 'center',
@@ -252,5 +400,35 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: COLORS.primary,
+  },
+  cardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: SPACING.xs,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionText: {
+    marginLeft: SPACING.xs,
+  },
+  smallIcon: {
+    marginRight: SPACING.xs,
+  },
+  dotSeparator: {
+    marginHorizontal: SPACING.xs,
+  },
+  serviceIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: SPACING.xs,
+  },
+  serviceIcon: {
+    marginRight: SPACING.xs,
+  },
+  serviceText: {
+    fontSize: 14,
   },
 }); 

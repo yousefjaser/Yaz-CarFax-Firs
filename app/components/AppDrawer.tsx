@@ -1,9 +1,11 @@
+// @ts-nocheck
 import React from 'react';
-import { View, StyleSheet, Image, Alert } from 'react-native';
+import { View, StyleSheet, Image, Alert, TouchableOpacity, Linking, Platform } from 'react-native';
 import { DrawerContentScrollView, DrawerItem } from '@react-navigation/drawer';
 import { Drawer, Text, Avatar, Divider } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS } from '../constants';
 import { useAuthStore } from '../utils/store';
 import { signOut } from '../services/auth';
@@ -12,6 +14,27 @@ import { signOut } from '../services/auth';
 const DRAWER_COLORS = {
   ...COLORS,
   danger: COLORS.error  // استخدام اللون الموجود بالفعل
+};
+
+// دالة مساعدة للألوان
+const getColorWithOpacity = (color, opacity) => {
+  // التأكد من أن اللون محدد
+  if (!color) {
+    return `rgba(0, 0, 0, ${opacity})`;
+  }
+  
+  // إذا كان اللون hex مع #
+  if (typeof color === 'string' && color.startsWith('#')) {
+    return color + Math.round(opacity * 255).toString(16).padStart(2, '0');
+  }
+  
+  // إذا كان اللون بصيغة rgba أو rgb
+  if (typeof color === 'string' && (color.startsWith('rgb') || color.startsWith('rgba'))) {
+    return color.replace(')', `, ${opacity})`).replace('rgb', 'rgba');
+  }
+  
+  // إذا كان اللون غير معروف، استخدم قيمة افتراضية
+  return `rgba(0, 0, 0, ${opacity})`;
 };
 
 // مكون لعرض المحتوى الداخلي للدراور
@@ -42,8 +65,16 @@ export function DrawerContent(props) {
               
               // تحديث حالة التخزين
               logout();
+              
               // التوجيه إلى صفحة تسجيل الدخول
-              router.replace('/auth/login');
+              if (props.navigation && props.navigation.closeDrawer) {
+                props.navigation.closeDrawer();
+                setTimeout(() => {
+                  router.replace('/auth/login');
+                }, 300);
+              } else {
+                router.replace('/auth/login');
+              }
             }
           }
         ]
@@ -54,91 +85,77 @@ export function DrawerContent(props) {
     }
   };
   
-  // تحديد القائمة حسب دور المستخدم
+  // دالة للتنقل بين الصفحات
+  const navigateTo = (screen) => {
+    if (props.navigation && props.navigation.navigate) {
+      props.navigation.navigate(screen);
+    }
+  };
+  
+  // دالة لتحديد رمز معين حسب دور المستخدم
+  const getRoleIcon = () => {
+    const userRole = String(user?.role).toLowerCase();
+    if (userRole === 'shop_owner' || userRole === 'shop') {
+      return 'store';
+    } else if (userRole === 'customer') {
+      return 'account';
+    } else if (userRole === 'admin') {
+      return 'shield-account';
+    }
+    return 'account';
+  };
+  
+  // دالة لإنشاء عناصر القائمة
   const renderMenuItems = () => {
     if (!user) return null;
     
-    // قائمة مشتركة للجميع
-    const commonItems = (
-      <>
-        <DrawerItem
-          icon={({color, size}) => (
-            <Icon name="account" color={COLORS.primary} size={size} />
-          )}
-          label="الملف الشخصي"
-          labelStyle={styles.drawerLabel}
-          onPress={() => {
-            props.navigation.closeDrawer();
-            // استخدام مقارنة النص العادية بدلاً من القيم الثابتة
-            const userRole = String(user.role).toLowerCase();
-            if (userRole === 'customer' || userRole === 'customer') {
-              router.push('/customer/profile');
-            } else if (userRole === 'shop_owner' || userRole === 'shop') {
-              router.push('/shop/profile');
-            } else if (userRole === 'admin') {
-              router.push('/admin/profile');
-            }
-          }}
-        />
-      </>
-    );
-    
-    // استخدام مقارنة النص العادية
     const userRole = String(user.role).toLowerCase();
     
     // عناصر خاصة بصاحب المحل
     if (userRole === 'shop_owner' || userRole === 'shop') {
       return (
         <>
-          <DrawerItem
-            icon={({color, size}) => (
-              <Icon name="view-dashboard" color={COLORS.primary} size={size} />
-            )}
+          <DrawerMenuItem 
+            icon="view-dashboard" 
             label="لوحة التحكم"
-            labelStyle={styles.drawerLabel}
-            onPress={() => {
-              props.navigation.closeDrawer();
-              router.push('/shop/shop-dashboard');
-            }}
+            color="#3498db" 
+            onPress={() => navigateTo('shop-dashboard')} 
           />
           
-          <DrawerItem
-            icon={({color, size}) => (
-              <Icon name="car" color={COLORS.primary} size={size} />
-            )}
+          <DrawerMenuItem 
+            icon="car" 
             label="السيارات"
-            labelStyle={styles.drawerLabel}
-            onPress={() => {
-              props.navigation.closeDrawer();
-              router.push('/shop/cars');
-            }}
+            color="#27AE60" 
+            onPress={() => navigateTo('cars')} 
           />
           
-          <DrawerItem
-            icon={({color, size}) => (
-              <Icon name="history" color={COLORS.primary} size={size} />
-            )}
+          <DrawerMenuItem 
+            icon="history" 
             label="سجل الخدمات"
-            labelStyle={styles.drawerLabel}
-            onPress={() => {
-              props.navigation.closeDrawer();
-              router.push('/shop/service-history');
-            }}
+            color="#9B59B6" 
+            onPress={() => navigateTo('service-history')} 
           />
           
-          <DrawerItem
-            icon={({color, size}) => (
-              <Icon name="qrcode-scan" color={COLORS.primary} size={size} />
-            )}
+          <DrawerMenuItem 
+            icon="qrcode-scan" 
             label="مسح QR"
-            labelStyle={styles.drawerLabel}
-            onPress={() => {
-              props.navigation.closeDrawer();
-              router.push('/shop/scan');
-            }}
+            color="#E67E22" 
+            onPress={() => navigateTo('scan')} 
           />
           
-          {commonItems}
+          <DrawerMenuItem 
+            icon="plus-circle" 
+            label="إضافة سيارة"
+            color="#16A085" 
+            onPress={() => navigateTo('add-car')} 
+          />
+          
+          <DrawerMenuItem 
+            icon="account" 
+            label="الملف الشخصي"
+            color="#34495E" 
+            onPress={() => navigateTo('profile')} 
+          />
         </>
       );
     }
@@ -147,31 +164,26 @@ export function DrawerContent(props) {
     else if (userRole === 'customer') {
       return (
         <>
-          <DrawerItem
-            icon={({color, size}) => (
-              <Icon name="view-dashboard" color={COLORS.primary} size={size} />
-            )}
+          <DrawerMenuItem 
+            icon="view-dashboard" 
             label="لوحة التحكم"
-            labelStyle={styles.drawerLabel}
-            onPress={() => {
-              props.navigation.closeDrawer();
-              router.push('/customer/customer-dashboard');
-            }}
+            color="#3498db" 
+            onPress={() => navigateTo('customer-dashboard')} 
           />
           
-          <DrawerItem
-            icon={({color, size}) => (
-              <Icon name="car" color={COLORS.primary} size={size} />
-            )}
+          <DrawerMenuItem 
+            icon="car" 
             label="سياراتي"
-            labelStyle={styles.drawerLabel}
-            onPress={() => {
-              props.navigation.closeDrawer();
-              router.push('/customer/cars');
-            }}
+            color="#27AE60" 
+            onPress={() => navigateTo('customer-cars')} 
           />
           
-          {commonItems}
+          <DrawerMenuItem 
+            icon="account" 
+            label="الملف الشخصي"
+            color="#34495E" 
+            onPress={() => navigateTo('profile')} 
+          />
         </>
       );
     }
@@ -180,184 +192,287 @@ export function DrawerContent(props) {
     else if (userRole === 'admin') {
       return (
         <>
-          <DrawerItem
-            icon={({color, size}) => (
-              <Icon name="view-dashboard" color={COLORS.primary} size={size} />
-            )}
+          <DrawerMenuItem 
+            icon="view-dashboard" 
             label="لوحة التحكم"
-            labelStyle={styles.drawerLabel}
-            onPress={() => {
-              props.navigation.closeDrawer();
-              router.push('/admin/admin-dashboard');
-            }}
+            color="#3498db" 
+            onPress={() => navigateTo('admin-dashboard')} 
           />
           
-          <DrawerItem
-            icon={({color, size}) => (
-              <Icon name="account-group" color={COLORS.primary} size={size} />
-            )}
+          <DrawerMenuItem 
+            icon="account-group" 
             label="المستخدمين"
-            labelStyle={styles.drawerLabel}
-            onPress={() => {
-              props.navigation.closeDrawer();
-              router.push('/admin/users');
-            }}
+            color="#9B59B6" 
+            onPress={() => navigateTo('admin-users')} 
           />
           
-          <DrawerItem
-            icon={({color, size}) => (
-              <Icon name="store" color={COLORS.primary} size={size} />
-            )}
+          <DrawerMenuItem 
+            icon="store" 
             label="المحلات"
-            labelStyle={styles.drawerLabel}
-            onPress={() => {
-              props.navigation.closeDrawer();
-              router.push('/admin/shops');
-            }}
+            color="#E67E22" 
+            onPress={() => navigateTo('admin-shops')} 
           />
           
-          <DrawerItem
-            icon={({color, size}) => (
-              <Icon name="car" color={COLORS.primary} size={size} />
-            )}
+          <DrawerMenuItem 
+            icon="car" 
             label="السيارات"
-            labelStyle={styles.drawerLabel}
-            onPress={() => {
-              props.navigation.closeDrawer();
-              router.push('/admin/cars');
-            }}
+            color="#27AE60" 
+            onPress={() => navigateTo('admin-cars')} 
           />
           
-          {commonItems}
+          <DrawerMenuItem 
+            icon="account" 
+            label="الملف الشخصي"
+            color="#34495E" 
+            onPress={() => navigateTo('profile')} 
+          />
         </>
       );
     }
     
-    return commonItems;
+    return (
+      <DrawerMenuItem 
+        icon="account" 
+        label="الملف الشخصي"
+        color="#34495E" 
+        onPress={() => navigateTo('profile')} 
+      />
+    );
   };
   
+  // الرمز والاسم حسب دور المستخدم
+  const getRoleName = () => {
+    const userRole = String(user?.role).toLowerCase();
+    if (userRole === 'shop_owner' || userRole === 'shop') {
+      return 'صاحب محل';
+    } else if (userRole === 'customer') {
+      return 'عميل';
+    } else if (userRole === 'admin') {
+      return 'مدير';
+    }
+    return 'مستخدم';
+  };
+
   return (
     <View style={styles.container}>
-      <DrawerContentScrollView {...props}>
-        <View style={styles.drawerContent}>
-          {/* معلومات المستخدم */}
-          <View style={styles.userInfoSection}>
-            <View style={styles.userInfo}>
-              <Avatar.Icon 
-                size={60} 
-                icon="account" 
-                style={{backgroundColor: COLORS.primary}} 
-              />
-              <View style={styles.userDetails}>
-                <Text style={styles.userName}>{user?.name || 'مستخدم'}</Text>
-                <Text style={styles.userRole}>
-                  {String(user?.role).toLowerCase() === 'shop_owner' || String(user?.role).toLowerCase() === 'shop'
-                    ? 'صاحب محل' 
-                    : String(user?.role).toLowerCase() === 'customer' 
-                      ? 'عميل' 
-                      : String(user?.role).toLowerCase() === 'admin' 
-                        ? 'مدير' 
-                        : 'مستخدم'}
-                </Text>
-              </View>
+      {/* الهيدر مع تدرج لوني */}
+      <LinearGradient
+        colors={[COLORS.primary, COLORS.primary + 'CC', COLORS.primary + '90']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerGradient}
+      >
+        <View style={styles.userInfoSection}>
+          {user?.profile_image ? (
+            <Image 
+              source={{ uri: user.profile_image }} 
+              style={styles.userImage} 
+            />
+          ) : (
+            <Avatar.Icon 
+              size={80} 
+              icon={getRoleIcon()} 
+              style={styles.avatar}
+              color="#FFF"
+            />
+          )}
+          
+          <View style={styles.userTextContainer}>
+            <Text style={styles.userName}>{user?.name || 'المستخدم'}</Text>
+            <View style={styles.roleContainer}>
+              <Icon name={getRoleIcon()} size={16} color="#fff" style={styles.roleIcon} />
+              <Text style={styles.userRole}>{getRoleName()}</Text>
+            </View>
+            <Text style={styles.userEmail}>{user?.email || ''}</Text>
+          </View>
+        </View>
+      </LinearGradient>
+      
+      <View style={styles.drawerContent}>
+        {/* عناصر القائمة */}
+        <View style={styles.menuSection}>
+          {renderMenuItems()}
+        </View>
+        
+        {/* معلومات التطبيق */}
+        <View style={styles.bottomSection}>
+          {/* زر تسجيل الخروج */}
+          <DrawerMenuItem 
+            icon="exit-to-app" 
+            label="تسجيل الخروج" 
+            onPress={handleLogout} 
+            color={COLORS.error || "#F44336"}
+            style={styles.logoutButton}
+          />
+          
+          <Divider style={styles.divider} />
+          
+          <View style={styles.appInfoContainer}>
+            <Text style={styles.appVersion}>YazCar v1.0.0</Text>
+            
+            <View style={styles.socialLinks}>
+              <SocialButton icon="web" url="https://yazcar.com" />
+              <SocialButton icon="instagram" url="https://instagram.com/yazcar" />
+              <SocialButton icon="twitter" url="https://twitter.com/yazcar" />
             </View>
           </View>
-          
-          <Divider style={styles.divider} />
-          
-          {/* عناصر القائمة */}
-          <Drawer.Section style={styles.drawerSection}>
-            {renderMenuItems()}
-          </Drawer.Section>
-          
-          <Divider style={styles.divider} />
-          
-          {/* قسم تسجيل الخروج */}
-          <Drawer.Section style={styles.logoutSection}>
-            <DrawerItem
-              icon={({color, size}) => (
-                <Icon name="logout" color={DRAWER_COLORS.danger} size={size} />
-              )}
-              label="تسجيل الخروج"
-              labelStyle={[styles.drawerLabel, styles.logoutLabel]}
-              onPress={handleLogout}
-            />
-          </Drawer.Section>
         </View>
-      </DrawerContentScrollView>
-      
-      {/* شعار التطبيق في أسفل الدراور */}
-      <View style={styles.footerContainer}>
-        <Text style={styles.appName}>YazCar</Text>
-        <Text style={styles.version}>الإصدار 1.0.0</Text>
       </View>
     </View>
   );
 }
 
+// مكون زر شبكات التواصل
+function SocialButton({ icon, url }) {
+  const handlePress = () => {
+    Linking.openURL(url).catch((err) => console.error('Error opening URL: ', err));
+  };
+  
+  return (
+    <TouchableOpacity style={styles.socialButton} onPress={handlePress}>
+      <Icon name={icon} size={22} color={COLORS.primary} />
+    </TouchableOpacity>
+  );
+}
+
+// مكون عنصر القائمة المحسن
+function DrawerMenuItem({ icon, label, onPress, color = "#333333", style }) {
+  return (
+    <TouchableOpacity 
+      style={[styles.menuItem, style]} 
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <View style={styles.menuItemContent}>
+        <Text style={[styles.menuLabel, { color }]}>{label}</Text>
+        <View style={[styles.iconContainer, { backgroundColor: getColorWithOpacity(color, 0.1) }]}>
+          <Icon name={icon} size={22} color={color} />
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+// أنماط لتخصيص مظهر الدراور
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: '#fff',
   },
-  drawerContent: {
-    flex: 1,
+  headerGradient: {
+    paddingTop: Platform.OS === 'ios' ? 50 : 30,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
   },
   userInfoSection: {
-    paddingVertical: 20,
-    paddingHorizontal: 20,
-    backgroundColor: '#f5f5f5',
-  },
-  userInfo: {
-    flexDirection: 'row',
     alignItems: 'center',
+    paddingTop: 10,
   },
-  userDetails: {
-    marginLeft: 15,
+  userImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.8)',
+  },
+  avatar: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  userTextContainer: {
+    alignItems: 'center',
+    marginTop: 10,
   },
   userName: {
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginTop: 3,
+    color: '#FFF',
+    textAlign: 'center',
+  },
+  roleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 5,
+  },
+  roleIcon: {
+    marginLeft: 5,
   },
   userRole: {
     fontSize: 14,
-    color: 'gray',
+    color: '#FFF',
+    opacity: 0.9,
+  },
+  userEmail: {
+    fontSize: 14,
+    color: '#FFF',
+    opacity: 0.7,
+    marginTop: 5,
+  },
+  drawerContent: {
+    flex: 1,
+    paddingVertical: 10,
+  },
+  menuSection: {
+    paddingHorizontal: 15,
+    paddingVertical: 5,
+  },
+  menuItem: {
+    marginVertical: 5,
+    paddingVertical: 12,
+    paddingHorizontal: 15,
+    borderRadius: 10,
+  },
+  menuItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 15,
+  },
+  menuLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  bottomSection: {
+    marginTop: 'auto',
+    padding: 15,
+  },
+  logoutButton: {
+    backgroundColor: getColorWithOpacity(COLORS.error, 0.1),
+    borderRadius: 10,
+    marginBottom: 15,
   },
   divider: {
-    height: 1,
     backgroundColor: '#e0e0e0',
+    marginVertical: 10,
   },
-  drawerSection: {
-    marginTop: 10,
-  },
-  drawerLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginRight: -20, // تعديل للغة العربية
-    textAlign: 'right',
-  },
-  logoutSection: {
-    marginTop: 10,
-    borderTopColor: '#f4f4f4',
-    borderTopWidth: 1,
-  },
-  logoutLabel: {
-    color: DRAWER_COLORS.danger,
-  },
-  footerContainer: {
-    padding: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#f4f4f4',
+  appInfoContainer: {
     alignItems: 'center',
+    marginTop: 5,
   },
-  appName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  version: {
+  appVersion: {
     fontSize: 12,
-    color: 'gray',
+    color: '#999',
+    marginBottom: 10,
   },
+  socialLinks: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+  },
+  socialButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 8,
+  }
 });
 
 export default DrawerContent; 

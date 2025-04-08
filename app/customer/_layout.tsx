@@ -1,5 +1,5 @@
 // @ts-nocheck
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { Redirect, Stack } from 'expo-router';
 import { useAuthStore } from '../utils/store';
@@ -50,6 +50,17 @@ function CustomerLayout() {
       };
     }
   };
+
+  // تعريف دالة فتح القائمة كدالة عالمية متاحة لجميع الشاشات - نفس طريقة shop-dashboard
+  useEffect(() => {
+    // تعريف الدالة في global لكي تكون متاحة في كل مكان
+    global.openDrawer = () => toggleDrawer();
+    
+    return () => {
+      // تنظيف عند إزالة المكون
+      global.openDrawer = undefined;
+    };
+  }, []);
 
   return (
     <View style={styles.container}>

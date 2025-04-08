@@ -116,7 +116,7 @@ export default function AddCarScreen() {
       
       if (data) {
         console.log('تم العثور على المحل:', data.name);
-        setShop(data);
+      setShop(data);
       } else {
         console.log('لم يتم العثور على محل مسجل للمستخدم');
       }
@@ -225,11 +225,16 @@ export default function AddCarScreen() {
     }
     
     if (!customerPhone.trim()) {
-      newErrors.customerPhone = 'الرجاء إدخال رقم هاتف العميل';
+      newErrors.phoneNumber = 'الرجاء إدخال رقم هاتف العميل';
     }
     
     if (!customerName.trim()) {
       newErrors.customerName = 'الرجاء إدخال اسم العميل';
+    }
+    
+    // التحقق من رمز QR للسيارة
+    if (!qrId) {
+      newErrors.qrId = 'الرجاء مسح رمز QR للسيارة';
     }
     
     // التحقق من بيانات الزيت إذا كان المستخدم في قسم الزيت
@@ -276,12 +281,12 @@ export default function AddCarScreen() {
       } else {
         // البحث عن العميل في جدول المستخدمين
         const { data: existingUser, error: userError } = await supabase
-          .from('users')
-          .select('id')
-          .eq('phone', customerPhone)
-          .eq('role', 'customer')
-          .maybeSingle();
-        
+        .from('users')
+        .select('id')
+        .eq('phone', customerPhone)
+        .eq('role', 'customer')
+        .maybeSingle();
+      
         if (userError && userError.code !== 'PGRST116') throw userError;
         
         let userId;
@@ -290,17 +295,17 @@ export default function AddCarScreen() {
         if (existingUser) {
           userId = existingUser.id;
           console.log('تم العثور على المستخدم في جدول users:', userId);
-        } else {
+      } else {
           // إنشاء مستخدم جديد إذا لم نجده - مع كلمة مرور آمنة
           const securePassword = `pass_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
           
           const { data: newUser, error: newUserError } = await supabase
-            .from('users')
-            .insert({
-              name: customerName,
-              phone: customerPhone,
-              role: 'customer',
-              email: `${customerPhone}@placeholder.com`, // مؤقت، يمكن تغييره لاحقاً
+          .from('users')
+          .insert({
+            name: customerName,
+            phone: customerPhone,
+            role: 'customer',
+            email: `${customerPhone}@placeholder.com`, // مؤقت، يمكن تغييره لاحقاً
               password: securePassword // كلمة مرور آمنة وفريدة
             })
             .select()
@@ -333,7 +338,7 @@ export default function AddCarScreen() {
       }
       
       // استخدام QR ID الذي تم مسحه أو إنشاء واحد جديد إذا لم يوجد
-      const finalQrId = qrId || `CAR_${Date.now()}`;
+      const finalQrId = qrId || `CAR_${Math.floor(Math.random() * 100000)}_${Date.now()}`;
 
       // تحديد معرف نوع الزيت
       let finalOilTypeId = null;
@@ -479,7 +484,7 @@ export default function AddCarScreen() {
   const showDatePickerComponent = () => {
     if (Platform.OS === 'web') {
       // استخدام منتقي تاريخ HTML للويب
-      return (
+  return (
         <View style={styles.webDatePickerContainer}>
           <input
             type="date"
@@ -543,17 +548,17 @@ export default function AddCarScreen() {
           }
         ]}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.keyboardAvoidContainer}
-        >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardAvoidContainer}
+      >
           {loading ? (
             <Loading />
           ) : (
-            <ScrollView 
-              contentContainerStyle={styles.scrollContent}
-              keyboardShouldPersistTaps="handled"
-            >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
               {/* مؤشر التقدم */}
               <View style={styles.progressContainer}>
                 <TouchableOpacity 
@@ -620,7 +625,7 @@ export default function AddCarScreen() {
               
               {activeSection === 'carInfo' && (
                 <Animated.View style={{ opacity: fadeAnim }}>
-                  <Text style={styles.sectionTitle}>معلومات السيارة</Text>
+          <Text style={styles.sectionTitle}>معلومات السيارة</Text>
 
                   <View style={styles.qrScanContainer}>
                     <View style={styles.qrTextContainer}>
@@ -632,6 +637,10 @@ export default function AddCarScreen() {
                         <Text style={styles.qrIdText}>
                           تم تعيين: {qrId}
                         </Text>
+                      ) : errors.qrId ? (
+                        <Text style={styles.errorText}>
+                          {errors.qrId}
+                        </Text>
                       ) : null}
                     </View>
                     <TouchableOpacity 
@@ -641,91 +650,91 @@ export default function AddCarScreen() {
                       <Icon name="qrcode-scan" size={26} color="#fff" />
                     </TouchableOpacity>
                   </View>
-                  
-                  <Input
-                    label="الشركة المصنعة"
-                    value={make}
-                    onChangeText={(text) => {
-                      setMake(text);
-                      if (errors.make) {
-                        setErrors({ ...errors, make: '' });
-                      }
-                    }}
-                    error={errors.make}
-                    icon="car-side"
+          
+          <Input
+            label="الشركة المصنعة"
+            value={make}
+            onChangeText={(text) => {
+              setMake(text);
+              if (errors.make) {
+                setErrors({ ...errors, make: '' });
+              }
+            }}
+            error={errors.make}
+            icon="car-side"
                     placeholder="أدخل اسم الشركة المصنعة للسيارة مثل: تويوتا، نيسان"
-                  />
-                  
-                  <Input
-                    label="الطراز"
-                    value={model}
-                    onChangeText={(text) => {
-                      setModel(text);
-                      if (errors.model) {
-                        setErrors({ ...errors, model: '' });
-                      }
-                    }}
-                    error={errors.model}
-                    icon="car-info"
+          />
+          
+          <Input
+            label="الطراز"
+            value={model}
+            onChangeText={(text) => {
+              setModel(text);
+              if (errors.model) {
+                setErrors({ ...errors, model: '' });
+              }
+            }}
+            error={errors.model}
+            icon="car-info"
                     placeholder="أدخل طراز السيارة مثل: كامري، مكسيما، كورولا"
-                  />
-                  
-                  <Input
-                    label="سنة الصنع"
-                    value={year}
-                    onChangeText={(text) => {
-                      setYear(text);
-                      if (errors.year) {
-                        setErrors({ ...errors, year: '' });
-                      }
-                    }}
-                    error={errors.year}
-                    keyboardType="numeric"
-                    maxLength={4}
-                    icon="calendar"
+          />
+          
+          <Input
+            label="سنة الصنع"
+            value={year}
+            onChangeText={(text) => {
+              setYear(text);
+              if (errors.year) {
+                setErrors({ ...errors, year: '' });
+              }
+            }}
+            error={errors.year}
+            keyboardType="numeric"
+            maxLength={4}
+            icon="calendar"
                     placeholder="أدخل سنة صنع السيارة بالأرقام مثل: 2023"
-                  />
-                  
-                  <Input
-                    label="رقم اللوحة"
-                    value={plateNumber}
-                    onChangeText={(text) => {
-                      setPlateNumber(text);
-                      if (errors.plateNumber) {
-                        setErrors({ ...errors, plateNumber: '' });
-                      }
-                    }}
-                    error={errors.plateNumber}
-                    icon="card-text"
+          />
+          
+          <Input
+            label="رقم اللوحة"
+            value={plateNumber}
+            onChangeText={(text) => {
+              setPlateNumber(text);
+              if (errors.plateNumber) {
+                setErrors({ ...errors, plateNumber: '' });
+              }
+            }}
+            error={errors.plateNumber}
+            icon="card-text"
                     placeholder="أدخل رقم لوحة السيارة كما هو مكتوب"
-                  />
-                  
-                  <Input
-                    label="اسم العميل"
-                    value={customerName}
-                    onChangeText={(text) => {
-                      setCustomerName(text);
-                      if (errors.customerName) {
-                        setErrors({ ...errors, customerName: '' });
-                      }
-                    }}
-                    error={errors.customerName}
-                    icon="account"
+          />
+          
+          <Input
+            label="اسم العميل"
+            value={customerName}
+            onChangeText={(text) => {
+              setCustomerName(text);
+              if (errors.customerName) {
+                setErrors({ ...errors, customerName: '' });
+              }
+            }}
+            error={errors.customerName}
+            icon="account"
                     placeholder="أدخل اسم صاحب السيارة الثلاثي"
-                  />
-                  
-                  <Input
-                    label="رقم الهاتف"
-                    value={customerPhone}
-                    onChangeText={(text) => {
-                      setCustomerPhone(text);
+          />
+          
+          <Input
+            label="رقم الهاتف"
+            value={customerPhone}
+            onChangeText={(text) => {
+              setCustomerPhone(text);
                       if (errors.phoneNumber) {
                         setErrors({ ...errors, phoneNumber: '' });
-                      }
-                    }}
+              }
+            }}
                     error={errors.phoneNumber}
-                    keyboardType="phone-pad"
-                    icon="phone"
+            keyboardType="phone-pad"
+            icon="phone"
                     placeholder="أدخل رقم هاتف العميل مثل: 05xxxxxxxx"
                   />
                   
@@ -1031,9 +1040,9 @@ export default function AddCarScreen() {
                   </View>
                 </Animated.View>
               )}
-            </ScrollView>
+        </ScrollView>
           )}
-        </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
       </Animated.View>
 
       {/* Dropdown Modals */}
@@ -1055,7 +1064,7 @@ export default function AddCarScreen() {
               <View style={styles.emptyListContainer}>
                 <Icon name="oil" size={40} color="#ccc" />
                 <Text style={styles.emptyListText}>لا توجد أنواع زيوت</Text>
-              </View>
+    </View>
             ) : (
               <FlatList
                 data={oilTypes}

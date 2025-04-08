@@ -29,7 +29,7 @@ export default function CarDetailsScreen() {
   const { id, source } = useLocalSearchParams();
   const carId = typeof id === 'string' ? id : Array.isArray(id) ? id[0] : '';
   const carSource = typeof source === 'string' ? source : '';
-  const { user } = useAuthStore();
+  const { user, isAuthenticated } = useAuthStore();
   
   const [loading, setLoading] = useState(true);
   const [car, setCar] = useState<any>(null);
@@ -206,12 +206,12 @@ export default function CarDetailsScreen() {
   const formatDate = (dateString) => {
     if (!dateString) return 'غير متوفر';
     try {
-      const date = new Date(dateString);
+    const date = new Date(dateString);
       return date.toLocaleDateString('ar', {
-        year: 'numeric',
+      year: 'numeric',
         month: '2-digit',
         day: '2-digit'
-      });
+    });
     } catch (error) {
       console.error('خطأ في تنسيق التاريخ:', error);
       return dateString;
@@ -234,28 +234,42 @@ export default function CarDetailsScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.topSection}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => router.back()}
-          >
-            <Icon name="arrow-right" size={24} color="#fff" />
-          </TouchableOpacity>
+          {/* عرض زر العودة فقط للمستخدمين المسجلين */}
+          {isAuthenticated ? (
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => router.back()}
+            >
+              <Icon name="arrow-right" size={24} color="#fff" />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.backButton} />
+          )}
           <Text style={styles.headerTitle}>تفاصيل السيارة</Text>
           <View style={styles.rightPlaceholder} />
         </View>
         
         <View style={[styles.bottomSection, styles.centerContent]}>
           <Surface style={styles.errorSurface}>
-            <Icon name="alert-circle-outline" size={64} color={COLORS.error} />
-            <Text style={styles.errorText}>لم يتم العثور على بيانات السيارة</Text>
-            <TouchableOpacity 
-              style={styles.primaryButton}
-              onPress={() => router.back()}
-            >
-              <Text style={styles.primaryButtonText}>العودة</Text>
-            </TouchableOpacity>
+        <Icon name="alert-circle-outline" size={64} color={COLORS.error} />
+        <Text style={styles.errorText}>لم يتم العثور على بيانات السيارة</Text>
+            {isAuthenticated ? (
+              <TouchableOpacity 
+                style={styles.primaryButton}
+                onPress={() => router.back()}
+              >
+                <Text style={styles.primaryButtonText}>العودة</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity 
+                style={styles.primaryButton}
+                onPress={() => router.replace('/')}
+              >
+                <Text style={styles.primaryButtonText}>الصفحة الرئيسية</Text>
+              </TouchableOpacity>
+            )}
           </Surface>
-        </View>
+      </View>
       </SafeAreaView>
     );
   }
@@ -267,21 +281,32 @@ export default function CarDetailsScreen() {
         backgroundColor={COLORS.primary}
       />
       <View style={styles.topSection}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Icon name="arrow-right" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>تفاصيل السيارة</Text>
-        <View style={styles.actionButtons}>
-          <TouchableOpacity onPress={handleEdit}>
-            <Icon name="pencil" size={24} color="#fff" style={{marginLeft: 20}} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={showDeleteDialog}>
-            <Icon name="delete" size={24} color="#fff" />
-          </TouchableOpacity>
-        </View>
+        {/* عرض أزرار التحكم فقط للمستخدمين المسجلين */}
+        {isAuthenticated ? (
+          <>
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => router.back()}
+            >
+              <Icon name="arrow-right" size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>تفاصيل السيارة</Text>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity onPress={handleEdit}>
+                <Icon name="pencil" size={24} color="#fff" style={{marginLeft: 20}} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={showDeleteDialog}>
+                <Icon name="delete" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.backButton} />
+            <Text style={styles.headerTitle}>تفاصيل السيارة</Text>
+            <View style={styles.rightPlaceholder} />
+          </>
+        )}
       </View>
 
       <Animated.View 
@@ -303,9 +328,9 @@ export default function CarDetailsScreen() {
                 <Icon name="car-side" size={60} color="#fff" />
               </View>
               <View style={styles.carTitleContainer}>
-                <Text style={styles.carTitle}>
+              <Text style={styles.carTitle}>
                   {car.make} {car.model}
-                </Text>
+              </Text>
                 <Text style={styles.carSubtitle}>{car.year}</Text>
                 <View style={styles.plateContainer}>
                   <Icon name="card-account-details" size={18} color="#fff" />
@@ -325,7 +350,7 @@ export default function CarDetailsScreen() {
                     <Text style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">
                       {car.qr_id || 'غير متوفر'}
                     </Text>
-                  </View>
+                </View>
                 </View>
                 
                 <View style={styles.detailItem}>
@@ -335,7 +360,7 @@ export default function CarDetailsScreen() {
                     <Text style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">
                       {car.color || 'غير محدد'}
                     </Text>
-                  </View>
+                </View>
                 </View>
               </View>
               
@@ -347,8 +372,8 @@ export default function CarDetailsScreen() {
                     <Text style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">
                       {car.chassis_number || 'غير متوفر'}
                     </Text>
-                  </View>
-                </View>
+              </View>
+            </View>
                 
                 <View style={styles.detailItem}>
                   <Icon name="calendar-clock" size={24} color={COLORS.primary} style={styles.detailIcon} />
@@ -427,7 +452,7 @@ export default function CarDetailsScreen() {
               <View style={styles.headerIconContainer}>
                 <Icon name="account-circle" size={24} color="#fff" />
               </View>
-              <Text style={styles.sectionTitle}>بيانات المالك</Text>
+            <Text style={styles.sectionTitle}>بيانات المالك</Text>
             </View>
             
             <Divider style={styles.coloredDivider} />
@@ -467,8 +492,8 @@ export default function CarDetailsScreen() {
                     <Text style={styles.contactText}>{car.customer.email}</Text>
                   </TouchableOpacity>
                 )}
-              </View>
-            </View>
+                </View>
+                  </View>
           </Surface>
           
           <Surface style={styles.card} elevation={4}>
@@ -476,9 +501,9 @@ export default function CarDetailsScreen() {
               <View style={styles.sectionHeader}>
                 <View style={styles.headerIconContainer}>
                   <Icon name="oil" size={24} color="#fff" />
-                </View>
-                <Text style={styles.sectionTitle}>معلومات الزيت والصيانة</Text>
               </View>
+                <Text style={styles.sectionTitle}>معلومات الزيت والصيانة</Text>
+            </View>
               
               <Divider style={styles.coloredDivider} />
               
@@ -548,47 +573,53 @@ export default function CarDetailsScreen() {
             </View>
           </Surface>
           
-          <View style={styles.actionsContainer}>
-            <TouchableOpacity 
-              style={styles.primaryAction}
-              onPress={addServiceVisit}
-              activeOpacity={0.8}
-            >
-              <Surface style={styles.actionButton} elevation={4}>
-                <View style={styles.actionContent}>
-                  <Icon name="wrench" size={28} color="#fff" style={styles.actionIcon} />
-                  <Text style={styles.actionText}>إضافة خدمة جديدة</Text>
-                </View>
-              </Surface>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.secondaryAction}
-              onPress={viewServiceHistory}
-              activeOpacity={0.8}
-            >
-              <Surface style={styles.actionButtonSecondary} elevation={4}>
-                <View style={styles.actionContent}>
-                  <Icon name="history" size={28} color={COLORS.primary} style={styles.actionIcon} />
-                  <Text style={[styles.actionText, styles.secondaryActionText]}>سجل الخدمات</Text>
-                </View>
-              </Surface>
-            </TouchableOpacity>
-          </View>
+          {/* عرض أزرار إضافة الخدمات فقط للمستخدمين المسجلين */}
+          {isAuthenticated && (
+            <View style={styles.actionsContainer}>
+              <TouchableOpacity 
+                style={styles.primaryAction}
+            onPress={addServiceVisit}
+                activeOpacity={0.8}
+              >
+                <Surface style={styles.actionButton} elevation={4}>
+                  <View style={styles.actionContent}>
+                    <Icon name="wrench" size={28} color="#fff" style={styles.actionIcon} />
+                    <Text style={styles.actionText}>إضافة خدمة جديدة</Text>
+                  </View>
+                </Surface>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={styles.secondaryAction}
+            onPress={viewServiceHistory}
+                activeOpacity={0.8}
+              >
+                <Surface style={styles.actionButtonSecondary} elevation={4}>
+                  <View style={styles.actionContent}>
+                    <Icon name="history" size={28} color={COLORS.primary} style={styles.actionIcon} />
+                    <Text style={[styles.actionText, styles.secondaryActionText]}>سجل الخدمات</Text>
+        </View>
+                </Surface>
+              </TouchableOpacity>
+            </View>
+          )}
           
+          {/* عرض قسم آخر الخدمات بشكل مختلف للمستخدمين المسجلين وغير المسجلين */}
           <Surface style={styles.card} elevation={4}>
             <View style={styles.sectionHeader}>
               <View style={styles.headerIconContainer}>
                 <Icon name="tools" size={24} color="#fff" />
               </View>
               <Text style={styles.sectionTitle}>آخر الخدمات</Text>
-              <TouchableOpacity 
-                style={styles.viewAllButton}
+              {isAuthenticated && (
+                <TouchableOpacity 
+                  style={styles.viewAllButton}
                 onPress={viewServiceHistory}
-              >
-                <Text style={styles.viewAllText}>عرض الكل</Text>
-                <Icon name="chevron-left" size={16} color={COLORS.primary} />
-              </TouchableOpacity>
+                >
+                  <Text style={styles.viewAllText}>عرض الكل</Text>
+                  <Icon name="chevron-left" size={16} color={COLORS.primary} />
+                </TouchableOpacity>
+              )}
             </View>
             
             <Divider style={styles.coloredDivider} />
@@ -596,20 +627,23 @@ export default function CarDetailsScreen() {
             {serviceVisits.length === 0 ? (
               <View style={styles.emptyStateContainer}>
                 <Icon name="calendar-remove" size={60} color="#DDD" style={styles.emptyIcon} />
-                <Text style={styles.emptyText}>لا توجد خدمات مسجلة لهذه السيارة</Text>
-                <TouchableOpacity 
-                  style={styles.emptyActionButton}
-                  onPress={addServiceVisit}
-                >
-                  <Text style={styles.emptyActionText}>إضافة خدمة جديدة</Text>
-                </TouchableOpacity>
+              <Text style={styles.emptyText}>لا توجد خدمات مسجلة لهذه السيارة</Text>
+                {isAuthenticated && (
+                  <TouchableOpacity 
+                    style={styles.emptyActionButton}
+                    onPress={addServiceVisit}
+                  >
+                    <Text style={styles.emptyActionText}>إضافة خدمة جديدة</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ) : (
               serviceVisits.slice(0, 3).map((visit) => (
                 <TouchableOpacity
                   key={visit.id}
-                  onPress={() => router.push(`/shop/service-details/${visit.id}`)}
+                  onPress={isAuthenticated ? () => router.push(`/shop/service-details/${visit.id}`) : undefined}
                   style={styles.visitItem}
+                  disabled={!isAuthenticated}
                 >
                   <View style={styles.visitHeader}>
                     <View style={styles.visitTitleContainer}>
@@ -625,8 +659,8 @@ export default function CarDetailsScreen() {
                     </View>
                     <View style={styles.visitDateContainer}>
                       <Icon name="calendar" size={14} color={COLORS.gray} style={{marginRight: 4}} />
-                      <Text style={styles.visitDate}>{formatDate(visit.date)}</Text>
-                    </View>
+                    <Text style={styles.visitDate}>{formatDate(visit.date)}</Text>
+                  </View>
                   </View>
                   
                   <View style={styles.visitDetails}>
@@ -646,56 +680,79 @@ export default function CarDetailsScreen() {
                   {visit.notes && (
                     <View style={styles.notesContainer}>
                       <Icon name="text-box" size={14} color="#666" style={{marginRight: 4}} />
-                      <Text style={styles.visitNotes} numberOfLines={1}>
-                        {visit.notes}
-                      </Text>
+                    <Text style={styles.visitNotes} numberOfLines={1}>
+                      {visit.notes}
+                    </Text>
                     </View>
                   )}
                   
-                  <View style={styles.visitFooter}>
-                    <Text style={styles.viewDetailsText}>عرض التفاصيل</Text>
-                    <Icon name="chevron-left" size={14} color={COLORS.primary} />
-                  </View>
+                  {isAuthenticated && (
+                    <View style={styles.visitFooter}>
+                      <Text style={styles.viewDetailsText}>عرض التفاصيل</Text>
+                      <Icon name="chevron-left" size={14} color={COLORS.primary} />
+                    </View>
+                  )}
                 </TouchableOpacity>
               ))
             )}
           </Surface>
-        </ScrollView>
+          
+          {/* عرض إشعار للمستخدمين غير المسجلين في نهاية الصفحة */}
+          {!isAuthenticated && (
+            <Surface style={[styles.card, styles.publicNoticeCard]} elevation={4}>
+              <View style={styles.publicNotice}>
+                <Icon name="information-outline" size={32} color={COLORS.primary} style={styles.publicNoticeIcon} />
+                <Text style={styles.publicNoticeText}>
+                  هذه البيانات متاحة للعرض العام. قم بتسجيل الدخول للوصول إلى جميع الميزات.
+                </Text>
+                <TouchableOpacity 
+                  style={styles.loginButton}
+                  onPress={() => router.push('/auth/login')}
+                >
+                  <Text style={styles.loginButtonText}>تسجيل الدخول</Text>
+                </TouchableOpacity>
+              </View>
+            </Surface>
+          )}
+      </ScrollView>
       </Animated.View>
       
+      {/* عرض حوار حذف السيارة فقط للمستخدمين المسجلين */}
+      {isAuthenticated && (
       <Portal>
-        <Dialog visible={deleteDialogVisible} onDismiss={hideDeleteDialog} style={styles.deleteDialog}>
-          <Dialog.Title style={styles.dialogTitle}>تأكيد الحذف</Dialog.Title>
+          <Dialog visible={deleteDialogVisible} onDismiss={hideDeleteDialog} style={styles.deleteDialog}>
+            <Dialog.Title style={styles.dialogTitle}>تأكيد الحذف</Dialog.Title>
           <Dialog.Content>
-            <View style={styles.dialogContent}>
-              <Icon name="alert-circle" size={40} color={COLORS.error} style={styles.dialogIcon} />
-              <Text style={styles.dialogText}>
-                هل أنت متأكد من رغبتك في حذف هذه السيارة؟ سيتم حذف جميع سجلات الخدمة المرتبطة بها أيضًا.
-              </Text>
-              <Text style={styles.dialogWarning}>
-                لا يمكن التراجع عن هذا الإجراء.
-              </Text>
-            </View>
+              <View style={styles.dialogContent}>
+                <Icon name="alert-circle" size={40} color={COLORS.error} style={styles.dialogIcon} />
+                <Text style={styles.dialogText}>
+                  هل أنت متأكد من رغبتك في حذف هذه السيارة؟ سيتم حذف جميع سجلات الخدمة المرتبطة بها أيضًا.
+            </Text>
+                <Text style={styles.dialogWarning}>
+                  لا يمكن التراجع عن هذا الإجراء.
+                </Text>
+              </View>
           </Dialog.Content>
-          <Dialog.Actions style={styles.dialogActions}>
-            <Button 
-              mode="outlined" 
-              onPress={hideDeleteDialog} 
-              style={styles.cancelButton}
-            >
-              إلغاء
-            </Button>
-            <Button 
-              mode="contained" 
-              onPress={handleDelete} 
-              style={styles.deleteButton}
-              labelStyle={styles.deleteButtonText}
-            >
+            <Dialog.Actions style={styles.dialogActions}>
+              <Button 
+                mode="outlined" 
+                onPress={hideDeleteDialog} 
+                style={styles.cancelButton}
+              >
+                إلغاء
+              </Button>
+              <Button 
+                mode="contained" 
+                onPress={handleDelete} 
+                style={styles.deleteButton}
+                labelStyle={styles.deleteButtonText}
+              >
               حذف
             </Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>
+      )}
     </SafeAreaView>
   );
 }
@@ -1304,5 +1361,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 8,
+  },
+  publicNoticeCard: {
+    backgroundColor: '#f8f8ff',
+    marginVertical: 10,
+  },
+  publicNotice: {
+    alignItems: 'center',
+    padding: 15,
+  },
+  publicNoticeIcon: {
+    marginBottom: 10,
+  },
+  publicNoticeText: {
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#555',
+    marginBottom: 15,
+  },
+  loginButton: {
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  loginButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
 }); 

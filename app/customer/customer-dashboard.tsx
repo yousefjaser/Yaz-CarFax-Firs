@@ -8,7 +8,7 @@ import { supabase } from '../config';
 import Loading from '../components/Loading';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
-import { useNavigation, DrawerActions } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 
 export default function CustomerDashboardScreen() {
   const router = useRouter();
@@ -25,14 +25,16 @@ export default function CustomerDashboardScreen() {
   // استخدام مكون التنقل للوصول إلى الدراور
   const navigation = useNavigation();
   
-  // فتح الدراور
+  // فتح الdrawer باستخدام الدالة العالمية - نفس طريقة shop-dashboard
   const openDrawer = () => {
-    if (Platform.OS === 'web') {
-      // على الويب، استخدم مسار مباشر للقائمة
-      router.push('/customer/menu');
-    } else {
-      // على الأجهزة المحمولة، استخدم الدراور
-      navigation.dispatch(DrawerActions.openDrawer());
+    try {
+      // نستخدم الdrawer المخصص فقط
+      if (global && global.openDrawer) {
+        global.openDrawer();
+      }
+      // نلغي الخيار البديل لتجنب التعارض
+    } catch (error) {
+      console.error('خطأ في فتح القائمة:', error);
     }
   };
   
