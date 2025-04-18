@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Alert, ScrollView, Platform, Dimensions } from 'react-native';
 import { Text, Appbar, Card, Button, Chip, ActivityIndicator, Dialog, Portal, TextInput, FAB, Modal } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import { useAuthStore } from '../utils/store';
@@ -9,7 +9,7 @@ import Loading from '../components/Loading';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 export default function ShopsScreen() {
-  const { user } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const [shops, setShops] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -342,11 +342,68 @@ export default function ShopsScreen() {
     }
   };
 
+  // فتح الdrawer باستخدام الدالة العالمية
+  const openDrawer = () => {
+    try {
+      // منع الاستدعاءات المتكررة
+      if (global._isOpeningAdminDrawer) {
+        console.log("تم تجاهل طلب فتح القائمة - القائمة تفتح حالياً");
+        return;
+      }
+      
+      // وضع علامة أن الفتح قيد التنفيذ
+      global._isOpeningAdminDrawer = true;
+      
+      // حماية إضافية للجوال مع تأخير إزالة العلامة
+      setTimeout(() => {
+        global._isOpeningAdminDrawer = false;
+      }, Platform.OS === 'ios' ? 800 : 500);
+      
+      // نستخدم الdrawer المخصص للمشرف
+      if (global && global.openAdminDrawer) {
+        global.openAdminDrawer();
+      }
+    } catch (error) {
+      global._isOpeningAdminDrawer = false;
+      console.error('خطأ في فتح القائمة:', error);
+    }
+  };
+
+  // دالة تنفيذ تسجيل الخروج
+  const handleLogout = async () => {
+    try {
+      // تأكيد مع المستخدم
+      Alert.alert(
+        "تسجيل الخروج", 
+        "هل أنت متأكد من رغبتك في تسجيل الخروج؟",
+        [
+          { text: "إلغاء", style: "cancel" },
+          { 
+            text: "تسجيل الخروج", 
+            style: "destructive",
+            onPress: async () => {
+              await logout();
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('خطأ في تسجيل الخروج:', error);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Appbar.Header>
+        {(Platform.OS !== 'web' || Dimensions.get('window').width < 768) && (
+          <Appbar.Action icon="menu" onPress={openDrawer} />
+        )}
         <Appbar.Content title="محلات الصيانة" />
         <Appbar.Action icon="plus" onPress={() => setShowAddModal(true)} />
+        <Appbar.Action 
+          icon="logout" 
+          onPress={handleLogout} 
+        />
       </Appbar.Header>
       
       <View style={styles.searchContainer}>

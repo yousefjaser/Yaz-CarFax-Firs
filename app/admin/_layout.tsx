@@ -7,24 +7,36 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { COLORS } from '../constants';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+// دالة مساعدة لإنشاء عنصر القائمة
+const MenuItem = ({ icon, label, onPress }) => (
+  <TouchableOpacity
+    style={styles.menuItem}
+    onPress={onPress}
+    activeOpacity={0.7}
+  >
+    <Icon name={icon} size={24} color="#fff" />
+    <Text style={styles.menuText}>{label}</Text>
+  </TouchableOpacity>
+);
+
 function AdminLayout() {
   const { user } = useAuthStore();
   const router = useRouter();
   const [isDrawerOpen, setIsDrawerOpen] = useState(true);
   const [windowWidth, setWindowWidth] = useState(Dimensions.get('window').width);
-  const isMobile = windowWidth < 768;
+  const isMobile = windowWidth < 768 || Platform.OS !== 'web';
   const insets = useSafeAreaInsets();
   const isDrawerInitialized = useRef(false);
   const timerRef = useRef(null);
 
-  // تعريف دالة فتح القائمة كدالة عالمية متاحة لجميع الشاشات - نفس طريقة shop-dashboard
+  // تعريف دالة فتح القائمة كدالة عالمية متاحة لجميع الشاشات
   useEffect(() => {
     // تعريف الدالة في global لكي تكون متاحة في كل مكان
-    global.openDrawer = () => toggleDrawer();
+    global.openAdminDrawer = () => toggleDrawer();
     
     return () => {
       // تنظيف عند إزالة المكون
-      global.openDrawer = undefined;
+      global.openAdminDrawer = undefined;
     };
   }, []);
 
@@ -36,15 +48,16 @@ function AdminLayout() {
       
       // إذا لم تتم تهيئة الdrawer بعد، قم بتهيئته حسب حجم الشاشة
       if (!isDrawerInitialized.current) {
-        setIsDrawerOpen(width >= 768);
+        // جعل الdrawer مفتوحًا افتراضيًا في الويب فقط
+        setIsDrawerOpen(width >= 768 && Platform.OS === 'web');
         isDrawerInitialized.current = true;
         return;
       }
 
       // إغلاق الdrawer تلقائيًا على الشاشات الصغيرة فقط عند تغيير الحجم
-      if (width < 768 && isDrawerOpen) {
+      if ((width < 768 || Platform.OS !== 'web') && isDrawerOpen) {
         setIsDrawerOpen(false);
-      } else if (width >= 768 && !isDrawerOpen) {
+      } else if (width >= 768 && Platform.OS === 'web' && !isDrawerOpen) {
         setIsDrawerOpen(true);
       }
     };
@@ -53,13 +66,12 @@ function AdminLayout() {
     handleResize();
 
     // إضافة مستمع لتغييرات الحجم
-    Dimensions.addEventListener('change', handleResize);
+    const subscription = Dimensions.addEventListener('change', handleResize);
 
     // إزالة المستمع
     return () => {
-      // تنظيف المستمع في React Native القديمة
-      if (Dimensions.removeEventListener) {
-        Dimensions.removeEventListener('change', handleResize);
+      if (subscription?.remove) {
+        subscription.remove();
       }
       
       // تنظيف أي مؤقتات
@@ -72,15 +84,31 @@ function AdminLayout() {
   // فتح/إغلاق الdrawer مع منع التبديل السريع
   const toggleDrawer = () => {
     console.log("تم استدعاء toggleDrawer");
+    
     // إلغاء أي مؤقت سابق
     if (timerRef.current) {
       clearTimeout(timerRef.current);
+      timerRef.current = null;
+      return; // منع النقر المزدوج السريع
     }
     
-    // تأكد من أنه لا يمكن النقر مرة أخرى لمدة 300 مللي ثانية
-    timerRef.current = setTimeout(() => {
-      timerRef.current = null;
-    }, 300);
+    // منع التبديل السريع لفترة أطول (500 مللي ثانية) للأجهزة المحمولة
+    if (Platform.OS !== 'web') {
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+      }, 500);
+
+      // لا تغلق الدراور تلقائياً في حالة الضغط على زر القائمة
+      if (!isDrawerOpen) {
+        setIsDrawerOpen(true);
+        return;
+      }
+    } else {
+      // في حالة الويب استخدم وقت أقصر
+      timerRef.current = setTimeout(() => {
+        timerRef.current = null;
+      }, 300);
+    }
     
     setIsDrawerOpen(prev => !prev);
   };
@@ -119,82 +147,83 @@ function AdminLayout() {
     }
   };
 
+  // Menu Items القائمة المشتركة
+  const menuItems = [
+    { icon: 'view-dashboard', label: 'لوحة التحكم', route: 'admin-dashboard' },
+    { icon: 'account-multiple', label: 'المستخدمين', route: 'users' },
+    { icon: 'store', label: 'المحلات', route: 'shops' },
+    { icon: 'car', label: 'السيارات', route: 'cars' },
+    { icon: 'format-list-bulleted', label: 'فئات الخدمات', route: 'service-categories' },
+  ];
+
   // استخدام Slot بدلاً من Stack
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
-        {/* الdrawer */}
-        {isDrawerOpen && (
+        {/* الdrawer للويب فقط */}
+        {isDrawerOpen && Platform.OS === 'web' && !isMobile && (
           <View style={[
             styles.sidebar, 
-            isMobile && styles.mobileSidebar,
+            styles.webSidebar,
             { 
-              paddingTop: isMobile ? insets.top : 15,
+              paddingTop: 15,
               paddingBottom: insets.bottom || 15
             }
           ]}>
             <View style={styles.logoContainer}>
               <Text style={styles.logoText}>يزكار - الإدارة</Text>
-              {isMobile && (
-                <TouchableOpacity 
-                  style={styles.closeButton} 
-                  onPress={toggleDrawer}
-                  activeOpacity={0.7}
-                  hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
-                >
-                  <Icon name="close" size={24} color="#fff" />
-                </TouchableOpacity>
-              )}
             </View>
             <View style={styles.menuItems}>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => navigateTo('admin-dashboard')}
+              {menuItems.map((item, index) => (
+                <MenuItem 
+                  key={index}
+                  icon={item.icon}
+                  label={item.label}
+                  onPress={() => navigateTo(item.route)}
+                />
+              ))}
+            </View>
+          </View>
+        )}
+        
+        {/* الdrawer للجوال فقط */}
+        {isDrawerOpen && (isMobile || Platform.OS !== 'web') && (
+          <View style={[
+            styles.sidebar, 
+            styles.mobileSidebar,
+            { 
+              paddingTop: insets.top || 15,
+              paddingBottom: insets.bottom || 15
+            }
+          ]}>
+            <View style={styles.logoContainer}>
+              <Text style={styles.logoText}>يزكار - الإدارة</Text>
+              <TouchableOpacity 
+                style={styles.closeButton} 
+                onPress={toggleDrawer}
                 activeOpacity={0.7}
+                hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}
               >
-                <Icon name="view-dashboard" size={24} color="#fff" />
-                <Text style={styles.menuText}>لوحة التحكم</Text>
+                <Icon name="close" size={24} color="#fff" />
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => navigateTo('users')}
-                activeOpacity={0.7}
-              >
-                <Icon name="account-multiple" size={24} color="#fff" />
-                <Text style={styles.menuText}>المستخدمين</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => navigateTo('shops')}
-                activeOpacity={0.7}
-              >
-                <Icon name="store" size={24} color="#fff" />
-                <Text style={styles.menuText}>المحلات</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => navigateTo('cars')}
-                activeOpacity={0.7}
-              >
-                <Icon name="car" size={24} color="#fff" />
-                <Text style={styles.menuText}>السيارات</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.menuItem}
-                onPress={() => navigateTo('service-categories')}
-                activeOpacity={0.7}
-              >
-                <Icon name="format-list-bulleted" size={24} color="#fff" />
-                <Text style={styles.menuText}>فئات الخدمات</Text>
-              </TouchableOpacity>
+            </View>
+            <View style={styles.menuItems}>
+              {menuItems.map((item, index) => (
+                <MenuItem 
+                  key={index}
+                  icon={item.icon}
+                  label={item.label}
+                  onPress={() => navigateTo(item.route)}
+                />
+              ))}
             </View>
           </View>
         )}
         
         {/* المحتوى */}
         <View style={styles.content}>
-          {/* زر فتح القائمة في حالة الجوال */}
-          {(!isDrawerOpen || isMobile) && (
+          {/* زر فتح القائمة */}
+          {(!isDrawerOpen || isMobile || Platform.OS !== 'web') && (
             <TouchableOpacity 
               style={[
                 styles.menuButton,
@@ -245,6 +274,11 @@ const styles = StyleSheet.create({
     padding: 15,
     height: '100%',
     zIndex: 1000,
+  },
+  webSidebar: {
+    // خصائص تخص drawer الويب فقط
+    borderRightWidth: 1,
+    borderRightColor: '#ddd',
   },
   mobileSidebar: {
     position: 'absolute',

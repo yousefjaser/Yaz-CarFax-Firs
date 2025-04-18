@@ -135,6 +135,7 @@ export default function CarDetailsScreen() {
   
   const loadServiceVisits = async (carId) => {
     try {
+      console.log("جاري تحميل سجلات الصيانة للسيارة:", carId);
       const { data: visitsData, error: visitsError } = await supabase
         .from('service_visits')
         .select(`
@@ -148,7 +149,8 @@ export default function CarDetailsScreen() {
         .order('date', { ascending: false });
       
       if (visitsError) throw visitsError;
-      console.log("عدد زيارات الخدمة:", visitsData ? visitsData.length : 0);
+      console.log("تم العثور على عدد سجلات الصيانة:", visitsData ? visitsData.length : 0);
+      console.log("بيانات سجلات الصيانة:", visitsData);
       setServiceVisits(visitsData || []);
     } catch (error) {
       console.error('فشل في تحميل سجل الخدمات:', error);
@@ -610,11 +612,11 @@ export default function CarDetailsScreen() {
               <View style={styles.headerIconContainer}>
                 <Icon name="tools" size={24} color="#fff" />
               </View>
-              <Text style={styles.sectionTitle}>آخر الخدمات</Text>
+              <Text style={styles.sectionTitle}>سجل الصيانة</Text>
               {isAuthenticated && (
                 <TouchableOpacity 
                   style={styles.viewAllButton}
-                onPress={viewServiceHistory}
+                  onPress={viewServiceHistory}
                 >
                   <Text style={styles.viewAllText}>عرض الكل</Text>
                   <Icon name="chevron-left" size={16} color={COLORS.primary} />
@@ -627,73 +629,64 @@ export default function CarDetailsScreen() {
             {serviceVisits.length === 0 ? (
               <View style={styles.emptyStateContainer}>
                 <Icon name="calendar-remove" size={60} color="#DDD" style={styles.emptyIcon} />
-              <Text style={styles.emptyText}>لا توجد خدمات مسجلة لهذه السيارة</Text>
+                <Text style={styles.emptyText}>لا توجد خدمات مسجلة لهذه السيارة</Text>
                 {isAuthenticated && (
                   <TouchableOpacity 
                     style={styles.emptyActionButton}
                     onPress={addServiceVisit}
                   >
-                    <Text style={styles.emptyActionText}>إضافة خدمة جديدة</Text>
+                    <Text style={styles.emptyActionText}>إضافة صيانة جديدة</Text>
                   </TouchableOpacity>
                 )}
               </View>
             ) : (
-              serviceVisits.slice(0, 3).map((visit) => (
-                <TouchableOpacity
-                  key={visit.id}
-                  onPress={isAuthenticated ? () => router.push(`/shop/service-details/${visit.id}`) : undefined}
-                  style={styles.visitItem}
-                  disabled={!isAuthenticated}
-                >
-                  <View style={styles.visitHeader}>
-                    <View style={styles.visitTitleContainer}>
-                      <Icon 
-                        name="wrench" 
-                        size={18} 
-                        color={COLORS.primary} 
-                        style={styles.visitIcon}
-                      />
-                      <Text style={styles.visitTitle}>
-                        {visit.service_categories?.name || visit.service_type || 'خدمة'}
-                      </Text>
-                    </View>
-                    <View style={styles.visitDateContainer}>
-                      <Icon name="calendar" size={14} color={COLORS.gray} style={{marginRight: 4}} />
-                    <Text style={styles.visitDate}>{formatDate(visit.date)}</Text>
-                  </View>
+              <>
+                {/* جدول سجل الصيانة */}
+                <View style={styles.maintenanceTable}>
+                  <View style={styles.tableHeader}>
+                    <Text style={styles.tableHeaderCell}>الصيانة</Text>
+                    <Text style={styles.tableHeaderCell}>التاريخ</Text>
+                    <Text style={styles.tableHeaderCell}>العداد</Text>
+                    <Text style={styles.tableHeaderCell}>الحد الأقصى</Text>
                   </View>
                   
-                  <View style={styles.visitDetails}>
-                    <View style={styles.visitPriceContainer}>
-                      <Icon name="cash" size={16} color="#218c74" style={{marginRight: 4}} />
-                      <Text style={styles.visitPrice}>{visit.cost || 0} ريال</Text>
-                    </View>
-                    
-                    {visit.mileage && (
-                      <View style={styles.mileageContainer}>
-                        <Icon name="speedometer" size={16} color={COLORS.gray} style={{marginRight: 4}} />
-                        <Text style={styles.mileageText}>{visit.mileage} كم</Text>
+                  <Divider style={styles.tableDivider} />
+                  
+                  {serviceVisits.slice(0, 5).map((visit) => (
+                    <TouchableOpacity
+                      key={visit.id}
+                      onPress={isAuthenticated ? () => router.push(`/shop/service-details/${visit.id}`) : undefined}
+                      disabled={!isAuthenticated}
+                    >
+                      <View style={styles.tableRow}>
+                        <View style={styles.tableCellService}>
+                          <Text style={styles.serviceName}>{visit.service_categories?.name || visit.service_type || 'خدمة'}</Text>
+                        </View>
+                        <View style={styles.tableCell}>
+                          <Text style={styles.cellText}>{formatDate(visit.date)}</Text>
+                        </View>
+                        <View style={styles.tableCell}>
+                          <Text style={styles.cellText}>{visit.mileage || '-'}</Text>
+                        </View>
+                        <View style={styles.tableCell}>
+                          <Text style={styles.cellText}>{visit.next_service_mileage || '-'}</Text>
+                        </View>
                       </View>
-                    )}
-                  </View>
-                  
-                  {visit.notes && (
-                    <View style={styles.notesContainer}>
-                      <Icon name="text-box" size={14} color="#666" style={{marginRight: 4}} />
-                    <Text style={styles.visitNotes} numberOfLines={1}>
-                      {visit.notes}
-                    </Text>
-                    </View>
-                  )}
-                  
-                  {isAuthenticated && (
-                    <View style={styles.visitFooter}>
-                      <Text style={styles.viewDetailsText}>عرض التفاصيل</Text>
-                      <Icon name="chevron-left" size={14} color={COLORS.primary} />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              ))
+                      <Divider style={styles.tableRowDivider} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                
+                {isAuthenticated && (
+                  <TouchableOpacity 
+                    style={styles.addMaintenanceButton}
+                    onPress={addServiceVisit}
+                  >
+                    <Icon name="plus" size={16} color="#fff" />
+                    <Text style={styles.addMaintenanceText}>إضافة صيانة جديدة</Text>
+                  </TouchableOpacity>
+                )}
+              </>
             )}
           </Surface>
           
@@ -1388,5 +1381,76 @@ const styles = StyleSheet.create({
   loginButtonText: {
     color: '#fff',
     fontWeight: 'bold',
+  },
+  maintenanceTable: {
+    marginVertical: 10,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#f9f9f9',
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+  },
+  tableHeaderCell: {
+    flex: 1,
+    color: '#fff',
+    fontWeight: 'bold',
+    textAlign: 'center',
+    fontSize: 14,
+  },
+  tableDivider: {
+    height: 1,
+    backgroundColor: '#eee',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    backgroundColor: '#fff',
+  },
+  tableCell: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tableCellService: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cellText: {
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#444',
+  },
+  serviceName: {
+    textAlign: 'center',
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: COLORS.primary,
+  },
+  tableRowDivider: {
+    height: 1,
+    backgroundColor: '#f0f0f0',
+  },
+  addMaintenanceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 20,
+    marginTop: 15,
+    alignSelf: 'center',
+  },
+  addMaintenanceText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginRight: 8,
+    fontSize: 14,
   },
 }); 

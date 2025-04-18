@@ -68,11 +68,15 @@ export default function AddCarScreen() {
 
   // تحديث المتغيرات المتعلقة بالزيت
   const [lastOilChangeDate, setLastOilChangeDate] = useState(new Date());
+  const [nextOilChangeDate, setNextOilChangeDate] = useState(new Date(new Date().setMonth(new Date().getMonth() + 6)));
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showNextDatePicker, setShowNextDatePicker] = useState(false);
   const [customOilType, setCustomOilType] = useState('');
   const [customOilGrade, setCustomOilGrade] = useState('');
   const [showCustomOilType, setShowCustomOilType] = useState(false);
   const [showCustomOilGrade, setShowCustomOilGrade] = useState(false);
+  const [whatsappNumber, setWhatsappNumber] = useState('');
+  const [countryCode, setCountryCode] = useState('+966'); // بادئة السعودية افتراضيًا
 
   useEffect(() => {
     loadShopData();
@@ -393,34 +397,56 @@ export default function AddCarScreen() {
       }
       
       // إضافة السيارة إلى قاعدة البيانات
-      const { data, error } = await supabase
-        .from('cars_new')
-        .insert({
+      const carData = {
           make,
           model,
           year: Number(year),
           plate_number: plateNumber,
           customer_id: customerId,
           shop_id: shop.id,
-          qr_id: finalQrId,
-          color: carColor,
-          chassis_number: chassisNumber,
-          current_odometer: currentMileage ? Number(currentMileage) : null,
-          oil_type: finalOilType,
-          oil_grade: finalOilGrade,
-          oil_type_id: finalOilTypeId,
-          oil_category_id: finalOilCategoryId,
-          next_oil_change_odometer: nextServiceMileage ? Number(nextServiceMileage) : null,
-          last_oil_change_date: lastOilChangeDate.toISOString()
-        })
+        qr_id: finalQrId,
+        color: carColor,
+        chassis_number: chassisNumber,
+        current_odometer: currentMileage ? Number(currentMileage) : null,
+        oil_type: finalOilType,
+        oil_grade: finalOilGrade,
+        oil_type_id: finalOilTypeId,
+        oil_category_id: finalOilCategoryId,
+        next_oil_change_odometer: nextServiceMileage ? Number(nextServiceMileage) : null,
+        last_oil_change_date: lastOilChangeDate.toISOString(),
+        next_oil_change_date: nextOilChangeDate.toISOString(),
+        // إضافة حالة الفلاتر
+        oil_filter_changed: oilFilterChanged,
+        air_filter_changed: airFilterChanged,
+        cabin_filter_changed: cabinFilterChanged,
+        // تاريخ تغيير الفلاتر (نفس تاريخ تغيير الزيت)
+        oil_filter_change_date: oilFilterChanged ? lastOilChangeDate.toISOString() : null,
+        air_filter_change_date: airFilterChanged ? lastOilChangeDate.toISOString() : null,
+        cabin_filter_change_date: cabinFilterChanged ? lastOilChangeDate.toISOString() : null
+      };
+      
+      console.log('بيانات السيارة المرسلة:', JSON.stringify({
+        next_oil_change_date: carData.next_oil_change_date,
+        whatsapp_info: `${countryCode} ${whatsappNumber} (تم تخزينه مؤقتاً فقط في التطبيق)`
+      }, null, 2));
+      
+      const { data, error } = await supabase
+        .from('cars_new')
+        .insert(carData)
         .select()
         .single();
       
       if (error) throw error;
       
+      console.log('تم إدخال السيارة بنجاح:', JSON.stringify({
+        id: data.id,
+        next_oil_change_date: data.next_oil_change_date,
+        whatsapp_info: `${data.whatsapp_country_code} ${data.whatsapp_number}`
+      }, null, 2));
+      
       Alert.alert(
         'تم بنجاح',
-        'تمت إضافة السيارة بنجاح',
+        `تمت إضافة السيارة بنجاح\nتم تعيين موعد تذكير الزيت: ${new Date(data.next_oil_change_date).toLocaleDateString('ar')}`,
         [
           {
             text: 'عرض التفاصيل',
@@ -514,6 +540,48 @@ export default function AddCarScreen() {
             setShowDatePicker(false);
             if (selectedDate) {
               setLastOilChangeDate(selectedDate);
+            }
+          }}
+        />
+      );
+    }
+    return null;
+  };
+
+  // عرض منتقي التاريخ للموعد المستقبلي لتغيير الزيت
+  const showNextDatePickerComponent = () => {
+    if (Platform.OS === 'web') {
+      // استخدام منتقي تاريخ HTML للويب
+      return (
+        <View style={styles.webDatePickerContainer}>
+          <input
+            type="date"
+            value={nextOilChangeDate.toISOString().split('T')[0]}
+            onChange={(e) => {
+              const date = new Date(e.target.value);
+              setNextOilChangeDate(date);
+            }}
+            style={{
+              padding: 8,
+              fontSize: 16,
+              width: '100%',
+              borderRadius: 8,
+              border: '1px solid #ddd'
+            }}
+          />
+        </View>
+      );
+    } else if (showNextDatePicker) {
+      // استخدام DateTimePicker لمنصات غير الويب
+      return (
+        <DateTimePicker
+          value={nextOilChangeDate}
+          mode="date"
+          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+          onChange={(event: any, selectedDate?: Date) => {
+            setShowNextDatePicker(false);
+            if (selectedDate) {
+              setNextOilChangeDate(selectedDate);
             }
           }}
         />
@@ -985,6 +1053,63 @@ export default function AddCarScreen() {
               {activeSection === 'additionalInfo' && (
                 <Animated.View style={{ opacity: fadeAnim }}>
                   <Text style={styles.sectionTitle}>معلومات إضافية</Text>
+                  
+                  <TouchableOpacity 
+                    style={styles.datePickerButton}
+                    onPress={() => setShowNextDatePicker(true)}
+                  >
+                    <Text style={styles.datePickerLabel}>موعد تذكير تغيير الزيت</Text>
+                    <View style={styles.datePickerContent}>
+                      <Icon name="bell-ring-outline" size={22} color={COLORS.primary} style={styles.dateIcon} />
+                      <Text style={styles.datePickerText}>
+                        {nextOilChangeDate.toLocaleDateString('ar', {
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit'
+                        })}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                  
+                  <View style={styles.reminderBoxContainer}>
+                    <View style={styles.whatsappRow}>
+                      <Icon name="whatsapp" size={20} color="#25D366" style={styles.whatsappIcon} />
+                      <Text style={styles.whatsappText}>رسالة واتساب</Text>
+                    </View>
+                    <Text style={styles.reminderText}>
+                      سيتم إرسال رسالة تذكير بموعد الصيانة
+                    </Text>
+                  </View>
+                  
+                  {showNextDatePickerComponent()}
+                  
+                  <View style={styles.whatsappContainer}>
+                    <Text style={styles.datePickerLabel}>رقم واتساب العميل</Text>
+                    <View style={styles.whatsappInputRow}>
+                      <View style={styles.countryCodeContainer}>
+                        <TextInput
+                          style={styles.countryCodeInput}
+                          value={countryCode}
+                          onChangeText={setCountryCode}
+                          placeholder="+966"
+                          keyboardType="phone-pad"
+                        />
+                      </View>
+                      <View style={styles.whatsappNumberContainer}>
+                        <TextInput
+                          style={styles.whatsappNumberInput}
+                          value={whatsappNumber}
+                          onChangeText={setWhatsappNumber}
+                          placeholder="5xxxxxxxx"
+                          keyboardType="phone-pad"
+                        />
+                        <Icon name="whatsapp" size={24} color="#25D366" />
+                      </View>
+                    </View>
+                    <Text style={[styles.reminderText, {flexShrink: 1}]}>
+                      أدخل رقم واتساب العميل لإرسال رسالة تذكير (اختياري)
+                    </Text>
+                  </View>
                   
                   <Input
                     label="لون السيارة"
@@ -1627,5 +1752,77 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
+  },
+  reminderBoxContainer: {
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 5,
+    marginBottom: 15,
+    width: '100%',
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  whatsappRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 5,
+    justifyContent: 'flex-end',
+  },
+  whatsappText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#444',
+    marginRight: 8,
+  },
+  whatsappIcon: {
+    marginLeft: 8,
+  },
+  reminderText: {
+    fontSize: 12,
+    color: '#777',
+    textAlign: 'right',
+  },
+  whatsappContainer: {
+    marginBottom: 20,
+    backgroundColor: '#f8f8f8',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  whatsappInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  countryCodeContainer: {
+    width: 80,
+    marginRight: 10,
+  },
+  countryCodeInput: {
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    textAlign: 'center',
+    fontSize: 16,
+  },
+  whatsappNumberContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+  },
+  whatsappNumberInput: {
+    flex: 1,
+    padding: 12,
+    fontSize: 16,
   },
 }); 

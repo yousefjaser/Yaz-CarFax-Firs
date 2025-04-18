@@ -1,7 +1,7 @@
 // @ts-nocheck
 import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity, StatusBar, Platform, SafeAreaView, Alert, Animated, Easing, Dimensions, RefreshControl, I18nManager } from 'react-native';
-import { Text, Badge, Surface } from 'react-native-paper';
+import { Text, Badge } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import { useAuthStore } from '../utils/store';
 import { supabase } from '../config';
@@ -147,7 +147,7 @@ const ProfessionalCarsCounter = ({ count }) => {
     <Animated.View style={{
       transform: isGoalReached ? [{ scale: pulseScale }] : []
     }}>
-      <Surface 
+      <View 
         style={[
           styles.professionalCounterCard,
           isGoalReached && {
@@ -208,7 +208,7 @@ const ProfessionalCarsCounter = ({ count }) => {
             </View>
           )}
         </Animated.View>
-      </Surface>
+      </View>
     </Animated.View>
   );
 };
@@ -229,9 +229,23 @@ export default function ShopDashboard() {
       global.router = router;
     }
   }, [router]);
-  
+
   useEffect(() => {
     loadProfileData();
+  }, []);
+
+  useEffect(() => {
+    // تعيين لون أيقونات شريط الحالة للون الأسود
+    StatusBar.setBarStyle('dark-content');
+    StatusBar.setTranslucent(true);
+    StatusBar.setBackgroundColor('transparent');
+    
+    return () => {
+      // استعادة اللون الافتراضي عند الخروج
+      StatusBar.setBarStyle('light-content');
+      StatusBar.setTranslucent(false);
+      StatusBar.setBackgroundColor(COLORS.primary);
+    };
   }, []);
 
   const loadProfileData = async () => {
@@ -246,10 +260,10 @@ export default function ShopDashboard() {
       try {
         const { data, error } = await supabase
           .from('users')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-        
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
         if (error) {
           console.error('فشل في تحميل معلومات المستخدم:', error);
         } else {
@@ -266,11 +280,11 @@ export default function ShopDashboard() {
       let shopData = null;
       try {
         const { data, error } = await supabase
-          .from('shops')
-          .select('*')
-          .eq('owner_id', user.id)
-          .single();
-        
+        .from('shops')
+        .select('*')
+        .eq('owner_id', user.id)
+        .single();
+      
         if (error) {
           console.error('فشل في تحميل معلومات المحل:', error);
         } else {
@@ -374,31 +388,10 @@ export default function ShopDashboard() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar 
-        backgroundColor={COLORS.primary}
-        barStyle="light-content"
-        translucent={false}
+        backgroundColor="transparent"
+        barStyle="dark-content"
+        translucent={true}
       />
-      
-      {/* شريط العنوان مع القائمة والإشعارات */}
-      <View style={styles.header}>
-        <TouchableOpacity 
-          style={styles.menuButton}
-          onPress={openDrawer}
-        >
-          <Icon name="menu" size={28} color="#000" />
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.notificationIcon}
-          onPress={() => router.push('/shop/notifications')}
-        >
-          <Icon name="bell-outline" size={28} color="#000" />
-          {stats.notifications > 0 && (
-            <Badge style={styles.badge}>{stats.notifications}</Badge>
-          )}
-        </TouchableOpacity>
-      </View>
-      
       <ScrollView 
         style={styles.scrollView} 
         showsVerticalScrollIndicator={false}
@@ -419,6 +412,7 @@ export default function ShopDashboard() {
           <View style={styles.shopIconContainer}>
             <Icon name="store" size={40} color="#FFF" />
           </View>
+          
           <View style={styles.welcomeTextContainer}>
             <Text style={styles.welcomeText}>
               أهلاً بك <Text style={styles.waveEmoji}>👋</Text> في
@@ -426,6 +420,13 @@ export default function ShopDashboard() {
             <Text style={styles.logoText}>Yaz Car</Text>
             <Text style={styles.subtitleText}>يوم جديد مليء بالإنجازات</Text>
           </View>
+          
+          <TouchableOpacity 
+            style={styles.menuButton}
+            onPress={openDrawer}
+          >
+            <Icon name="menu" size={24} color="#000" />
+          </TouchableOpacity>
         </View>
         
         {/* انيميشن عدد السيارات المسجلة - التصميم الاحترافي الجديد */}
@@ -435,7 +436,16 @@ export default function ShopDashboard() {
         
         {/* الإجراءات السريعة */}
         <View style={styles.quickActionsSection}>
-          <Text style={styles.sectionTitle}>الإجراءات السريعة</Text>
+          {/* عنوان الإجراءات السريعة */}
+          <Text style={{
+            fontSize: 19,
+            fontWeight: 'bold',
+            marginBottom: 15,
+            color: '#333',
+            alignSelf: 'flex-end',
+            marginRight: 0,
+            textAlign: 'right',
+          }}>الإجراءات السريعة</Text>
           
           {/* إضافة سيارة جديدة */}
           <TouchableOpacity 
@@ -469,21 +479,102 @@ export default function ShopDashboard() {
             </View>
           </TouchableOpacity>
           
-          <Text style={[styles.sectionTitle, { marginTop: 30 }]}>القائمة الرئيسية</Text>
+          {/* مسح NFC - إضافة جديدة */}
+          <TouchableOpacity 
+            style={[styles.actionCard, { backgroundColor: '#9C27B0' }]}
+            onPress={() => router.push('/shop/nfc')}
+          >
+            <View style={styles.actionCardContent}>
+              <View style={styles.actionIconContainer}>
+                <Icon name="nfc" size={36} color="#FFF" />
+              </View>
+              <View style={styles.actionTextContainer}>
+                <Text style={styles.actionCardTitle}>مسح NFC</Text>
+                <Text style={styles.actionCardDesc}>قراءة بطاقات NFC للسيارات</Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+          
+          {/* عنوان القائمة الرئيسية */}
+          <Text style={{
+            fontSize: 19,
+            fontWeight: 'bold',
+            marginBottom: 15,
+            marginTop: 30,
+            color: '#333',
+            alignSelf: 'flex-end',
+            marginRight: 0,
+            textAlign: 'right',
+          }}>القائمة الرئيسية</Text>
           
           <View style={styles.menuGrid}>
-            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/shop/cars')}>
+            <TouchableOpacity style={styles.menuItemRect} onPress={() => router.push('/shop/cars')}>
               <View style={[styles.menuIconContainer, { backgroundColor: '#27AE60' + '15' }]}>
                 <Icon name="car" size={24} color="#27AE60" />
               </View>
               <Text style={styles.menuItemText}>السيارات</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/shop/service-history')}>
+            <TouchableOpacity style={styles.menuItemRect} onPress={() => router.push('/shop/service-history')}>
               <View style={[styles.menuIconContainer, { backgroundColor: '#3498DB' + '15' }]}>
                 <Icon name="history" size={24} color="#3498DB" />
               </View>
               <Text style={styles.menuItemText}>سجل الخدمات</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.menuItemRect} onPress={() => router.push('/shop/service-reminders')}>
+              <View style={[styles.menuIconContainer, { backgroundColor: '#F39C12' + '15' }]}>
+                <Icon name="bell-ring" size={24} color="#F39C12" />
+              </View>
+              <Text style={styles.menuItemText}>تذكيرات الصيانة</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* بطاقة تذكير تغيير الزيت */}
+        <View style={styles.oilReminderCard}>
+          <View style={styles.oilReminderHeader}>
+            <Text style={styles.oilReminderTitle}>تذكير تغيير الزيت</Text>
+            <View style={styles.oilReminderIconContainer}>
+              <Icon name="bell-ring" size={24} color="#F39C12" />
+            </View>
+          </View>
+          
+          <View style={styles.oilReminderContent}>
+            <Text style={styles.oilReminderSubtitle}>السيارات التي اقترب موعد تغيير الزيت:</Text>
+            
+            {/* قائمة السيارات */}
+            <View style={styles.reminderCarsList}>
+              <View style={styles.reminderCarItem}>
+                <View style={styles.reminderCarInfo}>
+                  <Text style={styles.reminderCarModel}>تويوتا كامري</Text>
+                  <Text style={styles.reminderCarPlate}>لوحة: أ ب ج ١٢٣٤</Text>
+                </View>
+                <View style={styles.reminderCarStatus}>
+                  <Text style={styles.reminderCarDue}>متبقي 3 أيام</Text>
+                  <TouchableOpacity style={styles.reminderSendButton}>
+                    <Text style={styles.reminderSendButtonText}>إرسال تذكير</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              
+              <View style={styles.reminderCarItem}>
+                <View style={styles.reminderCarInfo}>
+                  <Text style={styles.reminderCarModel}>نيسان التيما</Text>
+                  <Text style={styles.reminderCarPlate}>لوحة: هـ و ز ٥٦٧٨</Text>
+                </View>
+                <View style={styles.reminderCarStatus}>
+                  <Text style={styles.reminderCarDue}>متبقي أسبوع</Text>
+                  <TouchableOpacity style={styles.reminderSendButton}>
+                    <Text style={styles.reminderSendButtonText}>إرسال تذكير</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+            
+            <TouchableOpacity style={styles.viewAllRemindersButton}>
+              <Text style={styles.viewAllRemindersText}>عرض جميع التذكيرات</Text>
+              <Icon name="chevron-left" size={18} color="#3498db" />
             </TouchableOpacity>
           </View>
         </View>
@@ -497,21 +588,21 @@ export default function ShopDashboard() {
         </TouchableOpacity>
         
         <TouchableOpacity style={styles.navItem} onPress={() => router.push('/shop/service-history')}>
-          <Icon name="wrench" size={22} color="#6c757d" />
-          <Text style={styles.navItemText}>الزيوت</Text>
+          <Icon name="history" size={22} color="#6c757d" />
+          <Text style={styles.navItemText}>السجل</Text>
         </TouchableOpacity>
         
         <TouchableOpacity style={styles.homeNavItem} onPress={() => router.push('/shop/shop-dashboard')}>
-          <Icon name="home" size={26} color="#FFF" />
+          <Icon name="view-dashboard" size={26} color="#FFF" />
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/shop/service-history')}>
-          <Icon name="bell" size={22} color="#6c757d" />
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/shop/service-reminders')}>
+          <Icon name="bell-ring" size={22} color="#6c757d" />
           <Text style={styles.navItemText}>التذكيرات</Text>
         </TouchableOpacity>
         
-        <TouchableOpacity style={styles.navItem} onPress={openDrawer}>
-          <Icon name="menu" size={22} color="#6c757d" />
+        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/shop/more')}>
+          <Icon name="dots-horizontal" size={22} color="#6c757d" />
           <Text style={styles.navItemText}>المزيد</Text>
         </TouchableOpacity>
       </View>
@@ -522,8 +613,11 @@ export default function ShopDashboard() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
     direction: 'rtl',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
   },
   header: {
     flexDirection: 'row-reverse',
@@ -536,15 +630,23 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f0f0f0',
   },
   menuButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#f5f5f5',
     justifyContent: 'center',
     alignItems: 'center',
+    marginLeft: 0,
+    marginRight: 10,
   },
-  notificationIcon: {
+  notificationIconContainer: {
     position: 'relative',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   badge: {
     position: 'absolute',
@@ -557,23 +659,21 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   welcomeSection: {
-    flexDirection: 'row-reverse',
+    flexDirection: 'row',
     justifyContent: 'flex-start',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 30,
+    paddingTop: 20,
+    paddingBottom: 20,
     backgroundColor: '#FFF',
   },
   shopIconContainer: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#3498db',
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 15,
-    marginRight: 0,
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
@@ -585,29 +685,28 @@ const styles = StyleSheet.create({
   },
   welcomeTextContainer: {
     flex: 1,
-    alignItems: 'flex-end',
+    alignItems: 'flex-start',
+    marginHorizontal: 10,
   },
   welcomeText: {
     fontSize: 16,
     fontWeight: '400',
     color: '#555',
-    textAlign: 'right',
+    textAlign: 'center',
   },
   waveEmoji: {
     fontSize: 18,
   },
   logoText: {
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#3498db',
-    textAlign: 'right',
-    marginTop: 0
+    textAlign: 'center',
   },
   subtitleText: {
     fontSize: 14,
-    color: '#777',
-    marginTop: 5,
-    textAlign: 'right',
+    color: '#888',
+    textAlign: 'center',
   },
   quickActionsSection: {
     padding: 20,
@@ -619,8 +718,12 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     color: '#333',
     textAlign: 'right',
-    alignSelf: 'flex-start',
     width: '100%',
+    paddingRight: 0,
+    paddingLeft: 'auto',
+    position: 'relative',
+    right: 0,
+    left: 'auto',
   },
   actionCard: {
     backgroundColor: '#27AE60',
@@ -689,6 +792,18 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 2,
   },
+  menuItemRect: {
+    width: '100%',
+    height: 80,
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 15,
+    marginBottom: 15,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+  },
   menuIconContainer: {
     width: 50,
     height: 50,
@@ -696,12 +811,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 8,
+    marginLeft: 15,
   },
   menuItemText: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#333',
     fontWeight: '500',
-    textAlign: 'center',
+    textAlign: 'right',
   },
   floatingNavBar: {
     position: 'absolute',
@@ -760,15 +876,12 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   professionalCounterCard: {
+    backgroundColor: '#f9f9f9',
     borderRadius: 15,
-    backgroundColor: '#FFF',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
     padding: 20,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
   },
   professionalCounterContent: {
     width: '100%',
@@ -857,5 +970,110 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginRight: 8,
     fontSize: 16,
+  },
+  oilReminderCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    padding: 15,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+  },
+  oilReminderHeader: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  oilReminderTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  oilReminderIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F39C12' + '15',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  oilReminderContent: {
+    width: '100%',
+  },
+  oilReminderSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 10,
+    textAlign: 'right',
+  },
+  reminderCarsList: {
+    width: '100%',
+  },
+  reminderCarItem: {
+    flexDirection: 'row-reverse',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    marginBottom: 8,
+    backgroundColor: '#f9f9f9',
+    borderRadius: 8,
+  },
+  reminderCarInfo: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  reminderCarModel: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'right',
+  },
+  reminderCarPlate: {
+    fontSize: 13,
+    color: '#777',
+    marginTop: 2,
+    textAlign: 'right',
+  },
+  reminderCarStatus: {
+    alignItems: 'flex-end',
+    marginRight: 15,
+  },
+  reminderCarDue: {
+    fontSize: 13,
+    color: '#E74C3C',
+    fontWeight: '600',
+    marginBottom: 5,
+    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  reminderSendButton: {
+    backgroundColor: '#3498db',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+  },
+  reminderSendButtonText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  viewAllRemindersButton: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 15,
+  },
+  viewAllRemindersText: {
+    color: '#3498db',
+    fontSize: 14,
+    fontWeight: '500',
+    marginRight: 5,
   },
 }); 

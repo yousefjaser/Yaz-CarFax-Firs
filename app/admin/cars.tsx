@@ -1,20 +1,47 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Alert } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Alert, Platform, Dimensions } from 'react-native';
 import { Text, Appbar, Card, Button, Chip, TextInput, SegmentedButtons } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import { useAuthStore } from '../utils/store';
 import { supabase } from '../config';
 import Loading from '../components/Loading';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import * as Haptics from 'expo-haptics';
 
 export default function CarsScreen() {
-  const { user } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const [cars, setCars] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterBy, setFilterBy] = useState('all'); // all, recent, old
+  const [showAddModal, setShowAddModal] = useState(false);
+
+  // دالة فتح القائمة الجانبية
+  const openDrawer = () => {
+    try {
+      // منع الاستدعاءات المتكررة
+      if (global._isOpeningAdminDrawer) {
+        return;
+      }
+      
+      // وضع علامة أن الفتح قيد التنفيذ
+      global._isOpeningAdminDrawer = true;
+      
+      setTimeout(() => {
+        global._isOpeningAdminDrawer = false;
+      }, 500);
+      
+      // نستخدم الدالة العالمية إذا كانت موجودة
+      if (global && global.openAdminDrawer) {
+        global.openAdminDrawer();
+      }
+    } catch (error) {
+      global._isOpeningAdminDrawer = false;
+      console.error('خطأ في فتح القائمة:', error);
+    }
+  };
 
   useEffect(() => {
     loadCars();
@@ -148,10 +175,41 @@ export default function CarsScreen() {
     </Card>
   );
 
+  // دالة تنفيذ تسجيل الخروج
+  const handleLogout = async () => {
+    try {
+      // تأكيد مع المستخدم
+      Alert.alert(
+        "تسجيل الخروج", 
+        "هل أنت متأكد من رغبتك في تسجيل الخروج؟",
+        [
+          { text: "إلغاء", style: "cancel" },
+          { 
+            text: "تسجيل الخروج", 
+            style: "destructive",
+            onPress: async () => {
+              await logout();
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('خطأ في تسجيل الخروج:', error);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Appbar.Header>
+        {(Platform.OS !== 'web' || Dimensions.get('window').width < 768) && (
+          <Appbar.Action icon="menu" onPress={openDrawer} />
+        )}
         <Appbar.Content title="السيارات" />
+        <Appbar.Action icon="plus" onPress={() => setShowAddModal(true)} />
+        <Appbar.Action 
+          icon="logout" 
+          onPress={handleLogout} 
+        />
       </Appbar.Header>
       
       <View style={styles.filtersContainer}>

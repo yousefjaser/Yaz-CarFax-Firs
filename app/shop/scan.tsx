@@ -13,135 +13,209 @@ import jsQR from 'jsqr';
 
 const { width, height } = Dimensions.get('window');
 
-// مكون الكاميرا المخصص للويب
+// مكون الكاميرا المخصص للويب - معدل لحل مشكلة الشاشة البيضاء
 const WebCamera = ({ onBarCodeScanned, style, onError, isScanned }) => {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
+  const streamRef = useRef(null);
   const [isVideoReady, setIsVideoReady] = useState(false);
   const [error, setError] = useState(null);
   const scanIntervalRef = useRef(null);
+  const [isScanActive, setIsScanActive] = useState(true);
   
-  useEffect(() => {
-    let stream = null;
+  // تنظيف موارد الكاميرا
+  const stopVideoStream = () => {
+    if (streamRef.current) {
+      const tracks = streamRef.current.getTracks();
+      tracks.forEach(track => track.stop());
+      streamRef.current = null;
+    }
     
-    const startCamera = async () => {
-      try {
-        // التحقق من وجود واجهة الكاميرا في المتصفح
-        if (!navigator || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-          const errorMsg = 'متصفحك لا يدعم استخدام الكاميرا. يرجى استخدام البحث اليدوي أو تجربة متصفح آخر.';
-          setError(errorMsg);
-          onError && onError(errorMsg);
-          return;
-        }
-        
-        // محاولة الحصول على الكاميرا
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: 'environment',
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          }
-        });
-        
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.play();
-          setIsVideoReady(true);
-        }
-      } catch (err) {
-        console.error('خطأ في تشغيل الكاميرا على الويب:', err);
-        
-        // رسائل خطأ أكثر تحديدًا حسب نوع الخطأ
-        let errorMsg = '';
-        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-          errorMsg = 'تم رفض إذن الكاميرا. يرجى السماح بالوصول من إعدادات المتصفح.';
-        } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
-          errorMsg = 'لم يتم العثور على كاميرا متصلة بجهازك.';
-        } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-          errorMsg = 'الكاميرا مستخدمة حاليًا من قبل تطبيق آخر.';
-        } else if (err.name === 'OverconstrainedError') {
-          errorMsg = 'لا يمكن العثور على كاميرا تلبي المتطلبات المطلوبة.';
-        } else {
-          errorMsg = err.message || 'فشل في تشغيل الكاميرا لسبب غير معروف.';
-        }
-        
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+  };
+  
+  // بدء تشغيل الكاميرا
+  const startCamera = async () => {
+    try {
+      // إيقاف أي بث سابق
+      stopVideoStream();
+      
+      // التحقق من وجود واجهة الكاميرا في المتصفح
+      if (!navigator || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        const errorMsg = 'متصفحك لا يدعم استخدام الكاميرا. يرجى استخدام البحث اليدوي أو تجربة متصفح آخر.';
         setError(errorMsg);
         onError && onError(errorMsg);
+        return;
       }
-    };
-    
+      
+      // التحقق من HTTPS
+      if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+        const errorMsg = 'يجب استخدام اتصال آمن (HTTPS) للوصول إلى الكاميرا.';
+        setError(errorMsg);
+        onError && onError(errorMsg);
+        return;
+      }
+      
+      // محاولة الحصول على الكاميرا
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        audio: false
+      });
+      
+      // حفظ البث في مرجع
+      streamRef.current = stream;
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        
+        // استخدام الأحداث لمعالجة تحميل الفيديو
+        videoRef.current.onloadedmetadata = () => {
+          console.log("تم تحميل معلومات الفيديو (metadata)");
+          
+          // محاولة تشغيل الفيديو مع معالجة الأخطاء
+          const playPromise = videoRef.current.play();
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => {
+                console.log("تم تشغيل الفيديو بنجاح");
+                setIsVideoReady(true);
+              })
+              .catch(error => {
+                console.error("فشل تشغيل الفيديو:", error);
+                // قد يحتاج المستخدم للتفاعل أولاً
+                setError("يرجى النقر على الشاشة لتفعيل الكاميرا");
+              });
+          }
+        };
+        
+        // معالجة خطأ الفيديو
+        videoRef.current.onerror = (e) => {
+          console.error("خطأ في عنصر الفيديو:", e);
+          setError("حدث خطأ في تشغيل الكاميرا. يرجى المحاولة مرة أخرى.");
+          onError && onError("خطأ في عنصر الفيديو");
+        };
+      }
+    } catch (err) {
+      console.error("خطأ في تشغيل الكاميرا على الويب:", err);
+      
+      // رسائل خطأ أكثر تحديدًا حسب نوع الخطأ
+      let errorMsg = '';
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        errorMsg = 'تم رفض إذن الكاميرا. يرجى السماح بالوصول من إعدادات المتصفح ثم إعادة تحميل الصفحة.';
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        errorMsg = 'لم يتم العثور على كاميرا متصلة بجهازك.';
+      } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+        errorMsg = 'الكاميرا مستخدمة حاليًا من قبل تطبيق آخر. أغلق أي تطبيقات أخرى تستخدم الكاميرا.';
+      } else if (err.name === 'OverconstrainedError') {
+        errorMsg = 'لا يمكن العثور على كاميرا تلبي المتطلبات المطلوبة.';
+      } else {
+        errorMsg = err.message || 'فشل في تشغيل الكاميرا لسبب غير معروف.';
+      }
+      
+      setError(errorMsg);
+      onError && onError(errorMsg);
+    }
+  };
+  
+  // بدء تشغيل الكاميرا عند تحميل المكون
+  useEffect(() => {
     startCamera();
     
     // تنظيف الكاميرا عند مغادرة الصفحة
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
-      }
-      if (scanIntervalRef.current) {
-        clearInterval(scanIntervalRef.current);
-      }
+      stopVideoStream();
     };
   }, [onError]);
+
+  // إيقاف المسح عندما يتم اكتشاف باركود
+  useEffect(() => {
+    setIsScanActive(!isScanned);
+    
+    // إيقاف المسح إذا تم مسح باركود
+    if (isScanned && scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+  }, [isScanned]);
   
   // وظيفة لمسح رموز QR من الفيديو
   useEffect(() => {
-    if (!isVideoReady || !videoRef.current) return;
+    // إلغاء المسح السابق لتجنب التداخل
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    
+    if (!isVideoReady || !videoRef.current || !canvasRef.current) return;
     
     // إيقاف المسح إذا تم العثور بالفعل على باركود
-    if (isScanned) {
-      if (scanIntervalRef.current) {
-        clearInterval(scanIntervalRef.current);
-        scanIntervalRef.current = null;
-      }
-      return;
-    }
+    if (isScanned || !isScanActive) return;
 
     const scanQRCode = () => {
       // لا تقم بالمسح إذا تم مسح باركود بالفعل
-      if (isScanned) return;
-      
+      if (isScanned || !isScanActive) return;
       if (!videoRef.current || !canvasRef.current) return;
       
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      const context = canvas.getContext('2d');
-      
-      // ضبط أبعاد الكانفاس لتناسب الفيديو
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
-      // رسم إطار الفيديو على الكانفاس
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
-      // الحصول على بيانات الصورة
-      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-      
-      // مسح رمز QR باستخدام مكتبة jsQR
-      const code = jsQR(imageData.data, imageData.width, imageData.height, {
-        inversionAttempts: "dontInvert",
-      });
-      
-      // إذا وجد رمز QR
-      if (code) {
-        console.log('تم العثور على رمز QR في الويب:', code.data);
+      try {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
         
-        // إيقاف مسح الكود بعد العثور عليه
-        if (scanIntervalRef.current) {
-          clearInterval(scanIntervalRef.current);
-          scanIntervalRef.current = null;
+        // التأكد من أن الفيديو جاهز وله أبعاد صالحة
+        if (video.videoWidth === 0 || video.videoHeight === 0) {
+          console.log("أبعاد الفيديو غير متوفرة بعد");
+          return;
         }
         
-        onBarCodeScanned && onBarCodeScanned({ 
-          type: 'QR_CODE', 
-          data: code.data 
+        // ضبط أبعاد الكانفاس لتناسب الفيديو
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        
+        // رسم إطار الفيديو على الكانفاس
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // الحصول على بيانات الصورة
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        
+        // مسح رمز QR باستخدام مكتبة jsQR
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: "dontInvert",
         });
+        
+        // إذا وجد رمز QR
+        if (code) {
+          console.log('تم العثور على رمز QR في الويب:', code.data);
+          
+          // إيقاف مسح الكود بعد العثور عليه
+          if (scanIntervalRef.current) {
+            clearInterval(scanIntervalRef.current);
+            scanIntervalRef.current = null;
+          }
+          
+          // تحديث حالة المسح
+          setIsScanActive(false);
+          
+          onBarCodeScanned && onBarCodeScanned({ 
+            type: 'QR_CODE', 
+            data: code.data 
+          });
+        }
+      } catch (e) {
+        console.error("خطأ أثناء مسح الرمز:", e);
       }
     };
     
     // إذا لم يبدأ المسح بعد، ابدأ المسح
-    if (!scanIntervalRef.current && !isScanned) {
+    if (!scanIntervalRef.current && isScanActive) {
       // تسريع المسح أكثر خاصة للجوال إلى 100 مللي ثانية
-      scanIntervalRef.current = setInterval(scanQRCode, 100);
+      scanIntervalRef.current = setInterval(scanQRCode, 200);
       
       // تنفيذ المسح مرة فوراً عند التحميل
       scanQRCode();
@@ -150,59 +224,89 @@ const WebCamera = ({ onBarCodeScanned, style, onError, isScanned }) => {
     return () => {
       if (scanIntervalRef.current) {
         clearInterval(scanIntervalRef.current);
+        scanIntervalRef.current = null;
       }
     };
-  }, [isVideoReady, onBarCodeScanned, isScanned]);
+  }, [isVideoReady, onBarCodeScanned, isScanned, isScanActive]);
 
   // معالجة المسح اليدوي عند الضغط على الصورة
   const handleManualScan = () => {
-    if (isScanned) return;
+    if (isScanned || !isScanActive) return;
+    
+    // إذا كان الفيديو غير جاهز، حاول تشغيله
+    if (!isVideoReady && videoRef.current) {
+      const playPromise = videoRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            console.log("تم تشغيل الفيديو بنجاح من النقرة");
+            setIsVideoReady(true);
+            setError(null);
+          })
+          .catch(error => {
+            console.error("فشل تشغيل الفيديو من النقرة:", error);
+          });
+      }
+      return;
+    }
     
     if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      const context = canvas.getContext('2d');
-      
-      // ضبط أبعاد الكانفاس لتناسب الفيديو
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      
-      // رسم إطار الفيديو على الكانفاس
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      
-      // الحصول على بيانات الصورة
-      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-      
-      // مسح رمز QR باستخدام مكتبة jsQR
-      const code = jsQR(imageData.data, imageData.width, imageData.height, {
-        inversionAttempts: "dontInvert",
-      });
-      
-      // إذا وجد رمز QR
-      if (code) {
-        console.log('تم العثور على رمز QR يدوياً في الويب:', code.data);
+      try {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
         
-        // إيقاف المسح الآلي
-        if (scanIntervalRef.current) {
-          clearInterval(scanIntervalRef.current);
-          scanIntervalRef.current = null;
+        // التأكد من أن الفيديو جاهز وله أبعاد صالحة
+        if (video.videoWidth === 0 || video.videoHeight === 0) {
+          console.log("أبعاد الفيديو غير متوفرة للمسح اليدوي");
+          window.alert('الكاميرا غير جاهزة بعد، يرجى الانتظار لحظة.');
+          return;
         }
         
-        onBarCodeScanned && onBarCodeScanned({ 
-          type: 'QR_CODE', 
-          data: code.data 
+        // ضبط أبعاد الكانفاس لتناسب الفيديو
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        
+        // رسم إطار الفيديو على الكانفاس
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // الحصول على بيانات الصورة
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        
+        // مسح رمز QR باستخدام مكتبة jsQR
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: "dontInvert",
         });
-      } else {
-        // إذا لم يجد رمز، أظهر تنبيه متوافق مع الويب
-        if (Platform.OS === 'web') {
-          window.alert('لم يتم العثور على رمز QR في الصورة الحالية. حاول توجيه الكاميرا بشكل أفضل.');
+        
+        // إذا وجد رمز QR
+        if (code) {
+          console.log('تم العثور على رمز QR يدوياً في الويب:', code.data);
+          
+          // إيقاف المسح الآلي
+          if (scanIntervalRef.current) {
+            clearInterval(scanIntervalRef.current);
+            scanIntervalRef.current = null;
+          }
+          
+          // تحديث حالة المسح
+          setIsScanActive(false);
+          
+          onBarCodeScanned && onBarCodeScanned({ 
+            type: 'QR_CODE', 
+            data: code.data 
+          });
         } else {
-          alert('لم يتم العثور على رمز QR في الصورة الحالية. حاول توجيه الكاميرا بشكل أفضل.');
+          // إذا لم يجد رمز، أظهر تنبيه متوافق مع الويب
+          window.alert('لم يتم العثور على رمز QR في الصورة الحالية. حاول توجيه الكاميرا بشكل أفضل.');
         }
+      } catch (e) {
+        console.error("خطأ أثناء المسح اليدوي:", e);
+        window.alert('حدث خطأ أثناء المسح. حاول مرة أخرى.');
       }
     }
   };
   
+  // استخدام WebCamera مع تصميم متوافق مع React Native
   return (
     <View style={[styles.webCameraContainer, style]}>
       {error ? (
@@ -211,78 +315,111 @@ const WebCamera = ({ onBarCodeScanned, style, onError, isScanned }) => {
           <Text style={styles.webCameraErrorText}>
             {error}
           </Text>
+          {error.includes('رفض إذن') && (
+            <Button 
+              mode="contained" 
+              onPress={startCamera}
+              style={{marginTop: 20}}
+            >
+              إعادة طلب الإذن
+            </Button>
+          )}
         </View>
       ) : (
-        <>
+        <View style={{width: '100%', height: '100%', position: 'relative'}}>
           <TouchableOpacity 
-            style={{ width: '100%', height: '100%' }}
-            onPress={handleManualScan} // إضافة المسح اليدوي عند الضغط
+            style={{width: '100%', height: '100%'}}
+            onPress={handleManualScan}
+            activeOpacity={0.9}
           >
-            <video
-              ref={videoRef}
+            {/* استخدام نهج متوافق مع React Native */}
+            <View
               style={{
                 width: '100%',
                 height: '100%',
-                objectFit: 'cover',
+                overflow: 'hidden',
+                backgroundColor: '#000',
               }}
-              playsInline
-              autoPlay
-              muted
-            />
-            
-            {/* إضافة إطار مسح لواجهة الويب لتوجيه المستخدم */}
-            <View style={styles.webScanFrame}>
-              <View style={styles.webScanFrameCorner1} />
-              <View style={styles.webScanFrameCorner2} />
-              <View style={styles.webScanFrameCorner3} />
-              <View style={styles.webScanFrameCorner4} />
+            >
+              {/* استخدام وسيط video بشكل آمن */}
+              {Platform.OS === 'web' && (
+                <video
+                  ref={videoRef}
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    backgroundColor: '#000',
+                  }}
+                  playsInline
+                  muted
+                  autoPlay
+                />
+              )}
             </View>
           </TouchableOpacity>
-          
-          {/* توجيه المستخدم للضغط على الشاشة للمسح اليدوي */}
-          {isVideoReady && !isScanned && (
-            <View style={styles.webHelpOverlay}>
-              <Text style={styles.webHelpText}>
-                اضغط على الشاشة للمسح اليدوي إذا لم يعمل المسح التلقائي
-              </Text>
+
+          <View style={styles.overlay}>
+            <View style={styles.unfilled} />
+            <View style={styles.scanRow}>
+              <View style={styles.unfilled} />
+              <View style={styles.scanFrame} />
+              <View style={styles.unfilled} />
             </View>
-          )}
+            <View style={styles.unfilled} />
+          </View>
           
-          {/* زر إعادة المسح عند العثور على كود */}
+          <View style={styles.scanOverlayTextContainer}>
+            <Text style={styles.scanText}>
+              {!isVideoReady ? "انقر على الشاشة لتشغيل الكاميرا" : 
+               isScanned ? "تم مسح الرمز بنجاح" : 
+               "قم بتوجيه الكاميرا نحو رمز QR"}
+            </Text>
+          </View>
+          
           {isScanned && (
-            <View style={styles.webRescanButtonContainer}>
-              <TouchableOpacity
-                style={styles.webRescanButton}
-                onPress={() => {
-                  // إعادة تفعيل المسح
-                  if (onBarCodeScanned) {
-                    // إعلام المكون الأب بإعادة المسح
-                    onBarCodeScanned({ type: 'reset', data: 'reset' });
-                  }
-                }}
-              >
-                <Text style={styles.webRescanButtonText}>مسح مرة أخرى</Text>
-              </TouchableOpacity>
+            <View style={styles.scanBlocker}>
+              <View style={styles.rescanButtonContainer}>
+                <Button 
+                  mode="contained" 
+                  onPress={() => {
+                    // إعادة تفعيل المسح
+                    if (onBarCodeScanned) {
+                      // إعلام المكون الأب بإعادة المسح
+                      onBarCodeScanned({ type: 'reset', data: 'reset' });
+                    }
+                  }}
+                  style={styles.rescanButton}
+                >
+                  مسح مرة أخرى
+                </Button>
+              </View>
             </View>
           )}
           
           {/* كانفاس مخفي للتحليل */}
-          <canvas
-            ref={canvasRef}
-            style={{
-              display: 'none',
-              position: 'absolute',
-            }}
-          />
-          {!isVideoReady && (
+          {Platform.OS === 'web' && (
+            <canvas
+              ref={canvasRef}
+              style={{
+                display: 'none',
+                position: 'absolute',
+              }}
+            />
+          )}
+          
+          {!isVideoReady && !error && (
             <View style={styles.webCameraLoading}>
               <ActivityIndicator size="large" color={COLORS.primary} />
               <Text style={styles.webCameraLoadingText}>
                 جاري تشغيل الكاميرا...
               </Text>
+              <Text style={{color: '#fff', fontSize: 12, marginTop: 8}}>
+                انقر على الشاشة لتفعيل الكاميرا إذا لزم الأمر
+              </Text>
             </View>
           )}
-        </>
+        </View>
       )}
     </View>
   );
@@ -354,11 +491,44 @@ export default function ScanScreen() {
   const startWebCamera = async () => {
     try {
       if (Platform.OS === 'web') {
-        setWebCameraActive(true);
+        // التحقق من دعم الكاميرا في المتصفح
+        if (!navigator || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          const errorMsg = 'متصفحك لا يدعم استخدام الكاميرا. يرجى استخدام البحث اليدوي أو تجربة متصفح آخر.';
+          console.error(errorMsg);
+          setCameraError(errorMsg);
+          return false;
+        }
+        
+        // محاولة تفعيل الكاميرا
+        try {
+          // طلب إذن الكاميرا بشكل استباقي
+          await navigator.mediaDevices.getUserMedia({ video: true });
+          
+          // إذا نجح الطلب، قم بتفعيل الكاميرا
+          setWebCameraActive(true);
+          return true;
+        } catch (err) {
+          // إذا فشل طلب الإذن، قم بعرض خطأ مناسب
+          console.error('فشل في تفعيل الكاميرا:', err);
+          let errorMsg = '';
+          if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            errorMsg = 'تم رفض إذن الكاميرا. يرجى السماح بالوصول من إعدادات المتصفح.';
+          } else {
+            errorMsg = 'فشل في تفعيل الكاميرا. يرجى المحاولة مرة أخرى أو استخدام البحث اليدوي.';
+          }
+          setCameraError(errorMsg);
+          return false;
+        }
       }
+      return false;
     } catch (error) {
       console.error('فشل في تشغيل كاميرا الويب:', error);
-      Alert.alert('خطأ', 'لم نتمكن من تشغيل الكاميرا. يرجى استخدام البحث اليدوي.');
+      if (Platform.OS === 'web') {
+        window.alert('لم نتمكن من تشغيل الكاميرا. يرجى استخدام البحث اليدوي.');
+      } else {
+        Alert.alert('خطأ', 'لم نتمكن من تشغيل الكاميرا. يرجى استخدام البحث اليدوي.');
+      }
+      return false;
     }
   };
   
@@ -414,9 +584,44 @@ export default function ScanScreen() {
       console.log("تم العثور على باركود - إيقاف المسح");
       setScanned(true);
       
-      const qrData = scanningResult.data;
+      let qrData = scanningResult.data;
       setLastScannedData(qrData);
       console.log(`تم مسح الباركود: ${qrData} (${scanningResult.type})`);
+      
+      // معالجة الرابط: التحقق مما إذا كان البيانات هي رابط من yazcar.xyz
+      if (typeof qrData === 'string') {
+        // تحقق إذا كان QR يحتوي على رابط
+        if (qrData.startsWith('http://') || qrData.startsWith('https://')) {
+          console.log('البيانات الممسوحة هي رابط:', qrData);
+          
+          // تحقق خاص بروابط yazcar.xyz
+          if (qrData.includes('yazcar.xyz') || qrData.includes('yazcar.com')) {
+            console.log('البيانات الممسوحة هي رابط yazcar:', qrData);
+            
+            try {
+              // استخدام URL API لتحليل الرابط
+              const url = new URL(qrData);
+              const pathSegments = url.pathname.split('/').filter(segment => segment.length > 0);
+              
+              // أخذ آخر جزء من المسار (معرف السيارة)
+              if (pathSegments.length > 0) {
+                const carIdFromUrl = pathSegments[pathSegments.length - 1];
+                console.log('تم استخراج معرف السيارة من الرابط:', carIdFromUrl);
+                qrData = carIdFromUrl;
+              }
+            } catch (err) {
+              console.error('خطأ في تحليل الرابط:', err);
+              // إذا فشل التحليل، استخدم الطريقة البسيطة
+              const urlParts = qrData.split('/');
+              if (urlParts.length > 0) {
+                const carIdFromUrl = urlParts[urlParts.length - 1];
+                console.log('تم استخراج معرف السيارة من الرابط بالطريقة البسيطة:', carIdFromUrl);
+                qrData = carIdFromUrl;
+              }
+            }
+          }
+        }
+      }
       
       // التحقق من وجود معلمة returnTo في عنوان URL
       const params = new URLSearchParams(window?.location?.search);
@@ -430,7 +635,7 @@ export default function ScanScreen() {
       }
       
       // البحث عن السيارة باستخدام البيانات الممسوحة مباشرة
-      console.log('معالجة بيانات QR code مباشرة...');
+      console.log('معالجة بيانات QR code مباشرة:', qrData);
       handleSearch(qrData);
     } catch (error) {
       console.error('خطأ أثناء معالجة الباركود الممسوح:', error);
@@ -534,14 +739,8 @@ export default function ScanScreen() {
           };
           global.tempCarData = carData;
           
-          // عرض التنبيه مع خيار الانتقال
-          if (window.confirm(carMessage + "\n\nهل تريد عرض التفاصيل؟")) {
-            router.push(`/shop/car-details/${newCar.qr_id}?source=cars_new`);
-          } else {
-            // السماح بإعادة المسح
-            setScanned(false);
-            isSearching.current = false;
-          }
+          // توجيه مباشر إلى صفحة التفاصيل العامة
+          router.push(`/shop/public/car/${newCar.qr_id}`);
         } else {
           // عرض معلومات السيارة في تنبيه للأجهزة المحمولة
           Alert.alert(
@@ -571,8 +770,8 @@ export default function ScanScreen() {
                   // حفظ البيانات في مخزن مؤقت
                   global.tempCarData = carData;
                   
-                  // التوجيه لصفحة تفاصيل السيارة مع تحديد أنها من cars_new
-                  router.push(`/shop/car-details/${newCar.qr_id}?source=cars_new`);
+                  // التوجيه لصفحة التفاصيل العامة
+                  router.push(`/shop/public/car/${newCar.qr_id}`);
                 }
               },
               rescanButton
@@ -1045,7 +1244,7 @@ const styles = StyleSheet.create({
   },
   webCameraContainer: {
     overflow: 'hidden',
-    borderRadius: 10,
+    borderRadius: 0,
     width: '100%',
     height: '100%',
     position: 'relative',
@@ -1055,12 +1254,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0,0,0,0.8)',
+    padding: 20,
   },
   webCameraErrorText: {
     color: '#FFF',
-    marginTop: 10,
+    marginTop: 15,
     textAlign: 'center',
     paddingHorizontal: 20,
+    fontSize: 16,
   },
   webCameraLoading: {
     position: 'absolute',
@@ -1074,7 +1275,8 @@ const styles = StyleSheet.create({
   },
   webCameraLoadingText: {
     color: '#FFF',
-    marginTop: 10,
+    marginTop: 15,
+    fontSize: 16,
   },
   orText: {
     color: '#FFF',

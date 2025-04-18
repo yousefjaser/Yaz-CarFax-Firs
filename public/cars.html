@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>السيارات المسجلة | ياز كار - أكبر منصة لتتبع صيانة السيارات في فلسطين</title>
+    <meta name="description" content="استعرض جميع السيارات المسجلة في منصة ياز كار، ابحث عن سجلات الصيانة، تحقق من تاريخ السيارات قبل الشراء، وتعرف على أفضل السيارات من حيث الصيانة والموثوقية في فلسطين">
+    <meta name="keywords" content="سيارات مستعملة, سجلات صيانة السيارات, ياز كار, تاريخ السيارات, شراء سيارة مستعملة, فلسطين, فحص السيارات قبل الشراء">
+    
+    <!-- Open Graph tags للمشاركة عبر وسائل التواصل الاجتماعي -->
+    <meta property="og:title" content="السيارات المسجلة | ياز كار - تصفح سجلات الصيانة">
+    <meta property="og:description" content="استعرض السيارات المسجلة في منصة ياز كار، وتحقق من تاريخ الصيانة الكامل قبل الشراء">
+    <meta property="og:image" content="https://yazcar.xyz/assets/cars-listing.jpg">
+    <meta property="og:url" content="https://yazcar.xyz/shop/cars">
+    <meta property="og:type" content="website">
+    
+    <!-- Twitter Card tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="السيارات المسجلة | ياز كار - تصفح سجلات الصيانة">
+    <meta name="twitter:description" content="استعرض السيارات المسجلة في منصة ياز كار، وتحقق من تاريخ الصيانة الكامل قبل الشراء">
+    <meta name="twitter:image" content="https://yazcar.xyz/assets/cars-listing.jpg">
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        body { 
+            font-family: 'Tajawal', sans-serif; 
+            padding-top: 20px; 
+            background-color: #f8f9fa;
+        }
+        .section {
+            margin: 30px 0;
+            padding: 25px;
+            border-radius: 8px;
+            background-color: white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        h1, h2, h3 {
+            color: #083c70;
+        }
+        .cta-button {
+            background-color: #083c70;
+            color: white;
+            padding: 10px 25px;
+            border-radius: 25px;
+            font-weight: bold;
+            text-decoration: none;
+            display: inline-block;
+            margin-top: 15px;
+        }
+        .search-box {
+            padding: 20px;
+            background-color: #f0f4f8;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        .car-card {
+            border-radius: 10px;
+            overflow: hidden;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            margin-bottom: 25px;
+            border: 1px solid #eee;
+        }
+        .car-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
+        }
+        .car-image {
+            height: 200px;
+            background-size: cover;
+            background-position: center;
+        }
+        .car-details {
+            padding: 15px;
+        }
+        .car-brand {
+            font-weight: bold;
+            font-size: 1.2rem;
+            margin-bottom: 5px;
+        }
+        .car-specs {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        .car-maintenance {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #eee;
+        }
+        .maintenance-indicator {
+            display: inline-block;
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        .good {
+            background-color: #28a745;
+        }
+        .average {
+            background-color: #ffc107;
+        }
+        .poor {
+            background-color: #dc3545;
+        }
+        .filter-section {
+            margin-bottom: 20px;
+        }
+        .filter-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .filter-options label {
+            display: block;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="text-center mb-5">
+            <h1>استعراض السيارات المسجلة</h1>
+            <p class="lead">تصفح السيارات وتاريخ صيانتها - اتخذ قرار شراء مدروس</p>
+        </header>
+
+        <div class="search-box">
+            <div class="row">
+                <div class="col-md-8">
+                    <div class="input-group mb-3">
+                        <input type="text" class="form-control" placeholder="ابحث عن سيارة حسب الماركة، الموديل، أو رقم اللوحة...">
+                        <button class="btn btn-primary" type="button"><i class="fas fa-search"></i> بحث</button>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <select class="form-select">
+                        <option selected>ترتيب حسب...</option>
+                        <option>الأحدث</option>
+                        <option>الأقدم</option>
+                        <option>الأقل كيلومترات</option>
+                        <option>الأفضل صيانة</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-3">
+                <div class="section">
+                    <h3>تصفية النتائج</h3>
+                    
+                    <div class="filter-section">
+                        <div class="filter-title">الماركة</div>
+                        <div class="filter-options">
+                            <label><input type="checkbox"> تويوتا</label>
+                            <label><input type="checkbox"> هيونداي</label>
+                            <label><input type="checkbox"> كيا</label>
+                            <label><input type="checkbox"> نيسان</label>
+                            <label><input type="checkbox"> مرسيدس</label>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-section">
+                        <div class="filter-title">سنة الصنع</div>
+                        <div class="filter-options">
+                            <label><input type="checkbox"> 2023 - 2020</label>
+                            <label><input type="checkbox"> 2019 - 2016</label>
+                            <label><input type="checkbox"> 2015 - 2011</label>
+                            <label><input type="checkbox"> 2010 - 2006</label>
+                            <label><input type="checkbox"> 2005 وأقدم</label>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-section">
+                        <div class="filter-title">حالة الصيانة</div>
+                        <div class="filter-options">
+                            <label><input type="checkbox"> ممتازة</label>
+                            <label><input type="checkbox"> جيدة</label>
+                            <label><input type="checkbox"> متوسطة</label>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-section">
+                        <div class="filter-title">القراءة الحالية للعداد</div>
+                        <div class="input-group mb-3">
+                            <input type="number" class="form-control" placeholder="من">
+                            <span class="input-group-text">-</span>
+                            <input type="number" class="form-control" placeholder="إلى">
+                        </div>
+                    </div>
+                    
+                    <button class="btn btn-primary w-100">تطبيق الفلتر</button>
+                </div>
+            </div>
+            
+            <div class="col-md-9">
+                <div class="row">
+                    <!-- سيارة 1 -->
+                    <div class="col-md-6 col-lg-4">
+                        <div class="car-card">
+                            <div class="car-image" style="background-image: url('https://yazcar.xyz/assets/car1.jpg')"></div>
+                            <div class="car-details">
+                                <div class="car-brand">تويوتا كامري</div>
+                                <div class="car-specs">
+                                    <div><i class="fas fa-calendar-alt"></i> 2020</div>
+                                    <div><i class="fas fa-tachometer-alt"></i> 45,000 كم</div>
+                                </div>
+                                <div class="car-maintenance">
+                                    <span class="maintenance-indicator good"></span> صيانة ممتازة
+                                </div>
+                                <a href="/shop/public/car/1234567890" class="btn btn-sm btn-outline-primary mt-2 w-100">عرض التفاصيل</a>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- سيارة 2 -->
+                    <div class="col-md-6 col-lg-4">
+                        <div class="car-card">
+                            <div class="car-image" style="background-image: url('https://yazcar.xyz/assets/car2.jpg')"></div>
+                            <div class="car-details">
+                                <div class="car-brand">هيونداي إلنترا</div>
+                                <div class="car-specs">
+                                    <div><i class="fas fa-calendar-alt"></i> 2018</div>
+                                    <div><i class="fas fa-tachometer-alt"></i> 78,000 كم</div>
+                                </div>
+                                <div class="car-maintenance">
+                                    <span class="maintenance-indicator average"></span> صيانة جيدة
+                                </div>
+                                <a href="/shop/public/car/9876543210" class="btn btn-sm btn-outline-primary mt-2 w-100">عرض التفاصيل</a>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- سيارة 3 -->
+                    <div class="col-md-6 col-lg-4">
+                        <div class="car-card">
+                            <div class="car-image" style="background-image: url('https://yazcar.xyz/assets/car3.jpg')"></div>
+                            <div class="car-details">
+                                <div class="car-brand">كيا سورينتو</div>
+                                <div class="car-specs">
+                                    <div><i class="fas fa-calendar-alt"></i> 2021</div>
+                                    <div><i class="fas fa-tachometer-alt"></i> 32,000 كم</div>
+                                </div>
+                                <div class="car-maintenance">
+                                    <span class="maintenance-indicator good"></span> صيانة ممتازة
+                                </div>
+                                <a href="/shop/public/car/5645645612356" class="btn btn-sm btn-outline-primary mt-2 w-100">عرض التفاصيل</a>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- سيارة 4 -->
+                    <div class="col-md-6 col-lg-4">
+                        <div class="car-card">
+                            <div class="car-image" style="background-image: url('https://yazcar.xyz/assets/car4.jpg')"></div>
+                            <div class="car-details">
+                                <div class="car-brand">نيسان التيما</div>
+                                <div class="car-specs">
+                                    <div><i class="fas fa-calendar-alt"></i> 2017</div>
+                                    <div><i class="fas fa-tachometer-alt"></i> 92,000 كم</div>
+                                </div>
+                                <div class="car-maintenance">
+                                    <span class="maintenance-indicator average"></span> صيانة جيدة
+                                </div>
+                                <a href="/shop/public/car/6543219870" class="btn btn-sm btn-outline-primary mt-2 w-100">عرض التفاصيل</a>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- سيارة 5 -->
+                    <div class="col-md-6 col-lg-4">
+                        <div class="car-card">
+                            <div class="car-image" style="background-image: url('https://yazcar.xyz/assets/car5.jpg')"></div>
+                            <div class="car-details">
+                                <div class="car-brand">مرسيدس C200</div>
+                                <div class="car-specs">
+                                    <div><i class="fas fa-calendar-alt"></i> 2019</div>
+                                    <div><i class="fas fa-tachometer-alt"></i> 60,000 كم</div>
+                                </div>
+                                <div class="car-maintenance">
+                                    <span class="maintenance-indicator good"></span> صيانة ممتازة
+                                </div>
+                                <a href="/shop/public/car/2468135790" class="btn btn-sm btn-outline-primary mt-2 w-100">عرض التفاصيل</a>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- سيارة 6 -->
+                    <div class="col-md-6 col-lg-4">
+                        <div class="car-card">
+                            <div class="car-image" style="background-image: url('https://yazcar.xyz/assets/car6.jpg')"></div>
+                            <div class="car-details">
+                                <div class="car-brand">فولكس فاجن باسات</div>
+                                <div class="car-specs">
+                                    <div><i class="fas fa-calendar-alt"></i> 2016</div>
+                                    <div><i class="fas fa-tachometer-alt"></i> 105,000 كم</div>
+                                </div>
+                                <div class="car-maintenance">
+                                    <span class="maintenance-indicator poor"></span> صيانة متوسطة
+                                </div>
+                                <a href="/shop/public/car/1357924680" class="btn btn-sm btn-outline-primary mt-2 w-100">عرض التفاصيل</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- ترقيم الصفحات -->
+                <nav aria-label="Page navigation example">
+                    <ul class="pagination justify-content-center mt-4">
+                        <li class="page-item disabled">
+                            <a class="page-link" href="#" tabindex="-1" aria-disabled="true">السابق</a>
+                        </li>
+                        <li class="page-item active"><a class="page-link" href="#">1</a></li>
+                        <li class="page-item"><a class="page-link" href="#">2</a></li>
+                        <li class="page-item"><a class="page-link" href="#">3</a></li>
+                        <li class="page-item">
+                            <a class="page-link" href="#">التالي</a>
+                        </li>
+                    </ul>
+                </nav>
+            </div>
+        </div>
+
+        <div class="section mt-4">
+            <h2 class="text-center mb-4">كيف تستفيد من سجلات الصيانة؟</h2>
+            <div class="row">
+                <div class="col-md-4 text-center mb-4">
+                    <i class="fas fa-search fa-3x mb-3" style="color: #083c70;"></i>
+                    <h3>تحقق قبل الشراء</h3>
+                    <p>قبل شراء سيارة مستعملة، تأكد من تاريخ صيانتها ومعرفة ما إذا كانت قد تعرضت لحوادث كبيرة.</p>
+                </div>
+                <div class="col-md-4 text-center mb-4">
+                    <i class="fas fa-history fa-3x mb-3" style="color: #083c70;"></i>
+                    <h3>اطلع على تاريخ السيارة</h3>
+                    <p>معرفة جميع عمليات الصيانة التي خضعت لها السيارة يساعدك في توقع التكاليف المستقبلية.</p>
+                </div>
+                <div class="col-md-4 text-center mb-4">
+                    <i class="fas fa-chart-line fa-3x mb-3" style="color: #083c70;"></i>
+                    <h3>تابع قيمة سيارتك</h3>
+                    <p>الحفاظ على سجل صيانة موثق يزيد من قيمة سيارتك عند البيع ويمنحك ميزة تفاوضية أفضل.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-5 mb-5">
+            <a href="https://yazcar.xyz/shop/add-car" class="cta-button">أضف سيارتك الآن</a>
+        </div>
+    </div>
+
+    <!-- بيانات منظمة schema.org للصفحة -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      "name": "السيارات المسجلة | ياز كار",
+      "description": "استعرض السيارات المسجلة في منصة ياز كار وتاريخ صيانتها",
+      "url": "https://yazcar.xyz/shop/cars",
+      "isPartOf": {
+        "@type": "WebSite",
+        "name": "ياز كار",
+        "url": "https://yazcar.xyz"
+      },
+      "about": {
+        "@type": "Thing",
+        "name": "سجلات صيانة السيارات"
+      },
+      "mainEntity": {
+        "@type": "ItemList",
+        "itemListElement": [
+          {
+            "@type": "ListItem",
+            "position": 1,
+            "item": {
+              "@type": "Vehicle",
+              "name": "تويوتا كامري 2020",
+              "vehicleModelDate": "2020",
+              "mileageFromOdometer": {
+                "@type": "QuantitativeValue",
+                "value": "45000",
+                "unitCode": "KMT"
+              }
+            }
+          },
+          {
+            "@type": "ListItem",
+            "position": 2,
+            "item": {
+              "@type": "Vehicle",
+              "name": "هيونداي إلنترا 2018",
+              "vehicleModelDate": "2018",
+              "mileageFromOdometer": {
+                "@type": "QuantitativeValue",
+                "value": "78000",
+                "unitCode": "KMT"
+              }
+            }
+          },
+          {
+            "@type": "ListItem",
+            "position": 3,
+            "item": {
+              "@type": "Vehicle",
+              "name": "كيا سورينتو 2021",
+              "vehicleModelDate": "2021",
+              "mileageFromOdometer": {
+                "@type": "QuantitativeValue",
+                "value": "32000",
+                "unitCode": "KMT"
+              }
+            }
+          }
+        ]
+      }
+    }
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html> 

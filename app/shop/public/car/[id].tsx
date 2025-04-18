@@ -1,816 +1,571 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   StyleSheet, 
   ScrollView, 
   TouchableOpacity, 
-  Alert, 
-  Animated, 
-  Easing, 
-  I18nManager,
+  Linking,
+  Image,
   StatusBar,
   SafeAreaView,
-  Linking,
-  Image
+  Platform,
+  Alert
 } from 'react-native';
-import { Text, Divider, Surface, ActivityIndicator } from 'react-native-paper';
-import { COLORS, SPACING } from '../../../constants';
-import { supabase } from '../../../config';
-import Loading from '../../../components/Loading';
+import { Text, ActivityIndicator, Divider } from 'react-native-paper';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import { Ionicons, MaterialCommunityIcons, FontAwesome5, Feather } from '@expo/vector-icons';
+import { supabase } from '../../../config';
+import { COLORS } from '../../../constants';
+import { I18nManager } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { 
+  getBannerImageUrl, 
+  getProfileImageUrl 
+} from '../../../services/cloudinary';
 
 // إجبار واجهة من اليمين لليسار
 I18nManager.forceRTL(true);
 
-export default function PublicCarDetailsScreen() {
+interface Car {
+  qr_id: string;
+  make: string;
+  model: string;
+  year: number;
+  plate_number: string;
+  chassis_number: string;
+  color: string;
+  oil_type: string;
+  oil_grade: string;
+  current_odometer: number;
+  next_oil_change_odometer: number;
+  last_oil_change_date: string;
+  next_oil_change_date: string;
+  oil_filter_changed: boolean;
+  air_filter_changed: boolean;
+  cabin_filter_changed: boolean;
+  created_at: string;
+  customer_id: string;
+  shop_id: string;
+  whatsapp_number: string;
+  whatsapp_country_code: string;
+  shop: {
+    phone: string;
+    whatsapp_prefix: string;
+    name: string;
+    banner_image: string | null;
+    logo_url: string | null;
+    address: string;
+    coordinates: { latitude: number; longitude: number } | null;
+    working_hours: string;
+    is_approved: boolean;
+  };
+}
+
+interface ServiceRecord {
+  id: string;
+  date: string;
+  mileage: number;
+  next_service_mileage: number;
+  oil_type: string;
+  oil_grade: string;
+  notes: string;
+  service_type?: string;
+  air_filter_changed?: boolean;
+  oil_filter_changed?: boolean;
+  cabin_filter_changed?: boolean;
+}
+
+export default function CarDetailsScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams();
-  const carId = typeof id === 'string' ? id : Array.isArray(id) ? id[0] : '';
+  const { id } = useLocalSearchParams<{ id: string }>();
   
   const [loading, setLoading] = useState(true);
-  const [car, setCar] = useState<any>(null);
-  const [serviceVisits, setServiceVisits] = useState<any[]>([]);
-  const [shop, setShop] = useState<any>(null);
-  const [shopOwner, setShopOwner] = useState<any>(null);
-  
-  // إضافة متغيرات الرسوم المتحركة
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
+  const [car, setCar] = useState<Car | null>(null);
+  const [serviceRecords, setServiceRecords] = useState<ServiceRecord[]>([]);
   
   useEffect(() => {
-    loadCarDetails();
-  }, [carId]);
+    fetchCarDetails();
+  }, [id]);
   
-  useEffect(() => {
-    // تشغيل حركة الظهور عند تحميل الصفحة
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 500,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 500,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      })
-    ]).start();
-  }, [car]);
-  
-  const loadCarDetails = async () => {
-    if (!carId) return;
-    
-    setLoading(true);
+  const fetchCarDetails = async () => {
     try {
-      // البحث في جدول cars_new باستخدام qr_id
-      console.log("البحث في جدول cars_new باستخدام qr_id:", carId);
+      setLoading(true);
+      
+      if (!id) return;
+      
+      // جلب معلومات السيارة مع بيانات المحل المحسنة
       const { data: carData, error: carError } = await supabase
         .from('cars_new')
         .select(`
           *,
-          customer:customer_id (
-            id,
-            name,
+          shop: shop_id (
             phone,
-            email
-          ),
-          shop:shop_id (
-            id,
+            whatsapp_prefix,
             name,
-            phone,
-            address,
+            banner_image,
             logo_url,
-            owner_id
+            address,
+            coordinates,
+            working_hours,
+            is_approved
           )
         `)
-        .eq('qr_id', carId)
-        .maybeSingle();
+        .eq('qr_id', id)
+        .single();
       
       if (carError) throw carError;
       
-      if (!carData) {
-        console.error('لم يتم العثور على السيارة بالمعرف المقدم:', carId);
-        setCar(null);
-        setLoading(false);
-        return;
-      }
+      setCar(carData);
       
-      console.log("تم العثور على السيارة:", carData);
+      // جلب سجلات الصيانة
+      const { data: serviceData, error: serviceError } = await supabase
+        .from('service_visits')
+        .select('*')
+        .eq('car_id', id)
+        .order('date', { ascending: false });
       
-      // تأكد من أن البيانات غير الموجودة تكون فارغة بدلاً من null لتجنب خطأ "غير محدد"
-      const processedCarData = {
-        ...carData,
-        oil_type: carData.oil_type || '',
-        oil_grade: carData.oil_grade || '',
-        current_odometer: carData.current_odometer || '',
-        next_oil_change_odometer: carData.next_oil_change_odometer || '',
-        color: carData.color || '',
-        chassis_number: carData.chassis_number || ''
-      };
+      if (serviceError) throw serviceError;
       
-      setCar(processedCarData);
-      
-      if (carData.shop) {
-        setShop(carData.shop);
-        
-        // تحميل بيانات مالك المحل
-        if (carData.shop.owner_id) {
-          const { data: ownerData, error: ownerError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', carData.shop.owner_id)
-            .maybeSingle();
-            
-          if (!ownerError && ownerData) {
-            setShopOwner(ownerData);
-          }
-        }
-      }
-      
-      // تحميل سجل الخدمات باستخدام qr_id
-      await loadServiceVisits(carData.qr_id);
+      setServiceRecords(serviceData || []);
       
     } catch (error) {
-      console.error('فشل في تحميل تفاصيل السيارة:', error);
-      Alert.alert('خطأ', 'فشل في تحميل تفاصيل السيارة');
+      console.error('Error fetching car details:', error);
     } finally {
       setLoading(false);
     }
   };
-  
-  const loadServiceVisits = async (carId: string) => {
-    try {
-      const { data: visitsData, error: visitsError } = await supabase
-        .from('service_visits')
-        .select(`
-          *,
-          service_categories (
-            id,
-            name
-          )
-        `)
-        .eq('car_id', carId)
-        .order('date', { ascending: false });
+
+  const handleCall = () => {
+    if (car?.shop?.phone) {
+      Linking.openURL(`tel:${car.shop.phone}`);
+    }
+  };
+
+  const handleWhatsApp = () => {
+    if (car?.shop?.phone) {
+      const message = `أهلا! أنا أتصفح معلومات سيارتك ${car.make} ${car.model} على تطبيق YazCar.`;
+      const phoneNumber = car.shop.phone.startsWith('0') ? car.shop.phone.substring(1) : car.shop.phone;
+      const whatsappUrl = `https://wa.me/${(car.shop.whatsapp_prefix || '966')}${phoneNumber}?text=${encodeURIComponent(message)}`;
+      Linking.openURL(whatsappUrl);
+    }
+  };
+
+  const openMap = () => {
+    if (car?.shop?.coordinates) {
+      // إذا كانت الإحداثيات متوفرة، استخدمها (أكثر دقة)
+      const { latitude, longitude } = car.shop.coordinates;
+      let mapUrl;
       
-      if (visitsError) throw visitsError;
-      console.log("عدد زيارات الخدمة:", visitsData ? visitsData.length : 0);
-      setServiceVisits(visitsData || []);
-    } catch (error) {
-      console.error('فشل في تحميل سجل الخدمات:', error);
-    }
-  };
-  
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return 'غير متوفر';
-    
-    try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('ar', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      });
-    } catch (e) {
-      return 'غير متوفر';
-    }
-  };
-  
-  const openDirections = () => {
-    if (shop && shop.address) {
-      const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop.address)}`;
-      Linking.openURL(url).catch(err => {
-        console.error('فشل في فتح تطبيق الخرائط:', err);
-        Alert.alert('خطأ', 'فشل في فتح تطبيق الخرائط');
-      });
-    }
-  };
-  
-  const callShop = () => {
-    if (shop && shop.phone) {
-      Linking.openURL(`tel:${shop.phone}`).catch(err => {
-        console.error('فشل في فتح تطبيق الهاتف:', err);
-        Alert.alert('خطأ', 'فشل في فتح تطبيق الهاتف');
-      });
-    }
-  };
-  
-  const getNextOilChangeDate = () => {
-    if (!car.last_oil_change_date) return 'غير متوفر';
-    
-    try {
-      // نفترض أن الزيت يتم تغييره كل 6 أشهر كمثال
-      const lastChangeDate = new Date(car.last_oil_change_date);
-      const nextChangeDate = new Date(lastChangeDate);
-      nextChangeDate.setMonth(lastChangeDate.getMonth() + 6);
-      
-      // حساب الأيام المتبقية
-      const today = new Date();
-      const timeDiff = nextChangeDate.getTime() - today.getTime();
-      const daysRemaining = Math.ceil(timeDiff / (1000 * 3600 * 24));
-      
-      if (daysRemaining <= 0) {
-        return 'متأخر عن الموعد';
+      if (Platform.OS === 'ios') {
+        // تنسيق Apple Maps للأيفون
+        mapUrl = `maps:?ll=${latitude},${longitude}&q=${encodeURIComponent(car.shop.name || 'المحل')}`;
+      } else if (Platform.OS === 'android') {
+        // تنسيق خرائط جوجل للأندرويد
+        mapUrl = `geo:${latitude},${longitude}?q=${latitude},${longitude}(${encodeURIComponent(car.shop.name || 'المحل')})`;
       } else {
-        return `متبقي ${daysRemaining} يوم`;
+        // للويب استخدم جوجل ماب
+        mapUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
       }
-    } catch (e) {
-      return 'غير متوفر';
-    }
-  };
-  
-  const getFilterStatusText = (isChanged: boolean, changeDate: string | null) => {
-    if (!isChanged) {
-      return 'يحتاج للتغيير';
-    }
-    
-    if (changeDate) {
-      return `تم التغيير في ${formatDate(changeDate)}`;
-    }
-    
-    return 'تم التغيير';
-  };
-
-  const openWhatsapp = () => {
-    // تنسيق الرقم مع رمز الدولة وإزالة الصفر من البداية
-    const whatsappNumber = '0598565009';
-    const formattedNumber = '972' + whatsappNumber.substring(1); // إضافة 972 (رمز فلسطين) وإزالة الصفر الأول
-
-    // تحضير النص مع تشفير صحيح للحروف العربية
-    const message = "أود الاستفسار عن الإعلان في تطبيق YazCar";
-    const encodedMessage = encodeURIComponent(message);
-    const whatsappUrl = `https://wa.me/${formattedNumber}?text=${encodedMessage}`;
-    
-    Linking.canOpenURL(whatsappUrl)
-      .then(supported => {
-        if (supported) {
-          return Linking.openURL(whatsappUrl);
-        } else {
-          Alert.alert('خطأ', 'تطبيق واتساب غير مثبت على جهازك');
-        }
-      })
-      .catch(err => {
-        console.error('فشل في فتح واتساب:', err);
-        Alert.alert('خطأ', 'فشل في فتح تطبيق واتساب');
+      
+      Linking.openURL(mapUrl).catch(() => {
+        // إذا فشل، استخدم رابط الويب
+        Linking.openURL(`https://www.google.com/maps?q=${latitude},${longitude}`);
       });
+    } else if (car?.shop?.address) {
+      // إذا لم تكن الإحداثيات متوفرة، استخدم العنوان النصي
+      const mapUrl = `https://maps.google.com/maps?q=${encodeURIComponent(car.shop.address)}`;
+      Linking.openURL(mapUrl);
+    } else {
+      Alert.alert('تنبيه', 'معلومات الموقع غير متوفرة');
+    }
   };
-  
-  // في حالة جاري التحميل
+
+  const formatDate = (dateString: string | null) => {
+    if (!dateString) return 'غير محدد';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString;
+    
+    // تنسيق التاريخ بالصيغة الميلادية (يوم/شهر/سنة)
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    
+    return `${day}/${month}/${year}`;
+  };
+
   if (loading) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.loadingText}>جاري تحميل بيانات السيارة...</Text>
+      <SafeAreaView style={styles.container}>
+        <StatusBar
+          barStyle="dark-content"
+          backgroundColor="#fff"
+        />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.primary} />
+          <Text style={styles.loadingText}>جاري تحميل البيانات...</Text>
+        </View>
       </SafeAreaView>
     );
   }
-  
-  // في حالة عدم العثور على السيارة
+
   if (!car) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar
-          barStyle="light-content"
-          backgroundColor={COLORS.primary}
+          barStyle="dark-content"
+          backgroundColor="#fff"
         />
-        <View style={styles.topSection}>
+        <View style={styles.header}>
+          <TouchableOpacity 
+            style={styles.backBtn} 
+            onPress={() => router.back()}
+          >
+            <Ionicons name="chevron-back" size={24} color="#333" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>تفاصيل السيارة</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <View style={styles.errorContainer}>
+          <MaterialCommunityIcons name="car-off" size={64} color={COLORS.error} />
+          <Text style={styles.errorText}>لم يتم العثور على بيانات السيارة</Text>
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => router.back()}
           >
-            <Icon name="arrow-right" size={24} color="#fff" />
+            <Text style={styles.backButtonText}>العودة</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>تفاصيل السيارة</Text>
-          <TouchableOpacity 
-            style={styles.homeButton}
-            onPress={() => router.replace('/')}
-          >
-            <Icon name="home" size={22} color="#fff" />
-          </TouchableOpacity>
-        </View>
-        
-        <View style={[styles.bottomSection, styles.centerContent]}>
-          <Surface style={styles.errorSurface}>
-            <Icon name="alert-circle-outline" size={64} color={COLORS.error} />
-            <Text style={styles.errorText}>لم يتم العثور على بيانات السيارة</Text>
-            <TouchableOpacity 
-              style={styles.primaryButton}
-              onPress={() => router.replace('/')}
-            >
-              <Text style={styles.primaryButtonText}>الصفحة الرئيسية</Text>
-            </TouchableOpacity>
-          </Surface>
         </View>
       </SafeAreaView>
     );
   }
-  
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar
-        barStyle="light-content"
-        backgroundColor={COLORS.primary}
+        barStyle="dark-content"
+        backgroundColor="#fff"
       />
-      <View style={styles.topSection}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Icon name="arrow-right" size={24} color="#fff" />
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+          <Ionicons name="chevron-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>تفاصيل السيارة</Text>
-        <TouchableOpacity 
-          style={styles.homeButton}
-          onPress={() => router.replace('/')}
-        >
-          <Icon name="home" size={22} color="#fff" />
-        </TouchableOpacity>
+        <View style={{ width: 24 }} />
       </View>
-
-      <Animated.View 
-        style={[
-          styles.bottomSection,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }]
-          }
-        ]}
-      >
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* بطاقة معلومات المالك والمحل */}
-          {shop && (
-            <Surface style={styles.ownerCard} elevation={4}>
-              <LinearGradient
-                colors={[COLORS.primary, '#3d84a8']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.ownerBanner}
-              >
-                <View style={styles.ownerInfo}>
-                  <View style={styles.shopLogoContainer}>
-                    {shop.logo_url ? (
-                      <Image 
-                        source={{ uri: shop.logo_url }} 
-                        style={styles.shopLogo} 
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={styles.shopLogoPlaceholder}>
-                        <Icon name="store" size={30} color="#fff" />
-                      </View>
-                    )}
-                  </View>
-                  
-                  <View style={styles.ownerTextInfo}>
-                    <Text style={styles.shopNameBanner}>{shop.name}</Text>
-                    {shopOwner && (
-                      <Text style={styles.ownerName}>
-                        <Icon name="account" size={16} color="#f0f0f0" /> {shopOwner.full_name || shopOwner.email}
-                      </Text>
-                    )}
-                    <View style={styles.ownerDetail}>
-                      <Icon name="phone" size={16} color="#f0f0f0" />
-                      <Text style={styles.ownerDetailText}>
-                        {shop.phone || 'غير متوفر'}
-                      </Text>
-                    </View>
-                    {shop.address && (
-                      <View style={styles.ownerDetail}>
-                        <Icon name="map-marker" size={16} color="#f0f0f0" />
-                        <Text style={styles.ownerDetailText}>
-                          {shop.address}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={styles.ownerContact}>
-                      <TouchableOpacity onPress={callShop} style={styles.ownerContactButton}>
-                        <Icon name="phone" size={18} color="#fff" />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={openDirections} style={styles.ownerContactButton}>
-                        <Icon name="map-marker" size={18} color="#fff" />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
-                <View style={styles.verification}>
-                  <Icon name="check-decagram" size={24} color="#fff" />
-                  <Text style={styles.verificationText}>مركز معتمد</Text>
-                </View>
-              </LinearGradient>
-            </Surface>
-          )}
-          
-          {/* بطاقة الإعلانات */}
-          <Surface style={styles.adCard} elevation={4}>
-            <LinearGradient
-              colors={['#6a11cb', '#2575fc']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.adBanner}
-            >
-              <View style={styles.adContent}>
-                <View style={styles.adTextContainer}>
-                  <Text style={styles.adTitle}>أعلن معنا الآن!</Text>
-                  <Text style={styles.adDescription}>احصل على مكان لإعلانك في تطبيق YazCar واستفد من تواجدك على منصتنا</Text>
-                  <TouchableOpacity 
-                    style={styles.whatsappButton}
-                    onPress={openWhatsapp}
-                  >
-                    <Icon name="whatsapp" size={18} color="#fff" />
-                    <Text style={styles.whatsappButtonText}>تواصل معنا عبر واتساب</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.adImageContainer}>
-                  <View style={styles.adImagePlaceholder}>
-                    <Icon name="bullhorn" size={40} color="#ffffff" />
-                  </View>
-                </View>
-              </View>
-            </LinearGradient>
-          </Surface>
-          
-          <Surface style={styles.topCard} elevation={4}>
-            <View style={styles.carBanner}>
-              <LinearGradient
-                colors={[COLORS.primary, '#3d84a8']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.gradientBanner}
+      
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {/* بانر المحل والصورة الشخصية */}
+        <View style={styles.shopProfileContainer}>
+          {/* بانر المحل */}
+          <View style={styles.bannerContainer}>
+            {car.shop?.banner_image ? (
+              <Image 
+                source={{ uri: getBannerImageUrl(car.shop.banner_image, 1200, 220) }}
+                style={styles.bannerImage}
+                resizeMode="cover"
               />
-              <View style={styles.carIconContainer}>
-                <Icon name="car-side" size={70} color="#fff" />
-              </View>
-            </View>
+            ) : (
+              <LinearGradient
+                colors={['#3B82F6', '#204080']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.defaultBanner}
+              />
+            )}
             
-            <View style={styles.carHeader}>
-              <View style={styles.carTitleContainer}>
-                <Text style={styles.carTitle}>
-                  {car.make} {car.model}
-                </Text>
-                <Text style={styles.carSubtitle}>{car.year}</Text>
-                <View style={styles.plateContainer}>
-                  <Icon name="card-account-details" size={18} color={COLORS.primary} />
-                  <Text style={styles.plateNumber}>{car.plate_number}</Text>
-                </View>
-              </View>
-            </View>
-            
-            <Divider style={styles.coloredDivider} />
-            
-            <View style={styles.carStatusContainer}>
-              <View style={styles.carStatusItem}>
-                <Icon name="check-circle" size={22} color="#4CAF50" />
-                <Text style={styles.carStatusText}>مسجلة لدى {shop ? shop.name : 'YazCar'}</Text>
-              </View>
-              
-              <View style={styles.carStatusItem}>
-                <Icon 
-                  name={car.current_odometer ? "speedometer" : "speedometer-medium"} 
-                  size={22} 
-                  color={car.current_odometer ? "#4CAF50" : "#ff6b6b"} 
+            {/* صورة المحل */}
+            <View style={styles.shopLogoContainer}>
+              {car.shop?.logo_url ? (
+                <Image 
+                  source={{ uri: getProfileImageUrl(car.shop.logo_url, 120) }}
+                  style={styles.shopLogo}
                 />
-                <Text style={styles.carStatusText}>
-                  {car.current_odometer ? `${car.current_odometer} كم` : 'لم يتم تسجيل قراءة العداد'}
-                </Text>
+              ) : (
+                <View style={styles.defaultShopLogo}>
+                  <MaterialCommunityIcons name="store" size={32} color="#fff" />
+                </View>
+              )}
+            </View>
+          </View>
+          
+          {/* شارة مركز معتمد وساعات العمل فوق المعلومات الأخرى */}
+          <View style={styles.badgesContainer}>
+            {car.shop?.is_approved && (
+              <View style={styles.verifiedBadge}>
+                <Text style={styles.verifiedText}>مركز معتمد</Text>
+                <Ionicons name="shield-checkmark" size={14} color="#00703C" style={styles.verifiedIcon} />
+              </View>
+            )}
+            
+            {car.shop?.working_hours && (
+              <View style={styles.workingHoursBadge}>
+                <Text style={styles.workingHoursText}>{car.shop.working_hours}</Text>
+                <Ionicons name="time-outline" size={14} color="#0D47A1" style={styles.workingHoursIcon} />
+              </View>
+            )}
+          </View>
+          
+          {/* معلومات المحل */}
+          <View style={styles.shopInfoContainer}>
+            <View style={styles.shopInfoCard}>
+              <Text style={styles.shopName}>{car.shop?.name || 'Yaz Car'}</Text>
+              
+              <View style={styles.detailInfoRow}>
+                <Ionicons name="call-outline" size={14} color="#777" style={styles.infoIcon} />
+                <Text style={styles.shopPhone}>{car.shop?.phone ? `+ ${car.shop.whatsapp_prefix || '966'} ${car.shop.phone}` : 'رقم غير متوفر'}</Text>
+              </View>
+              
+              {car.shop?.address && (
+                <View style={styles.detailInfoRow}>
+                  <Ionicons name="location-outline" size={14} color="#777" style={styles.infoIcon} />
+                  <Text style={styles.shopAddress} numberOfLines={1}>{car.shop.address}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+          
+          {/* أزرار التواصل */}
+          {car.shop?.phone && (
+            <View style={styles.contactBtns}>
+              <TouchableOpacity style={[styles.contactBtn, styles.callBtn]} onPress={handleCall}>
+                <Ionicons name="call" size={18} color="#fff" />
+                <Text style={styles.contactBtnText}>اتصال بنا</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={[styles.contactBtn, styles.whatsappBtn]} onPress={handleWhatsApp}>
+                <FontAwesome5 name="whatsapp" size={18} color="#fff" />
+                <Text style={styles.contactBtnText}>واتساب</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={[styles.contactBtn, styles.locationBtn]} onPress={openMap}>
+                <Ionicons name="location" size={18} color="#fff" />
+                <Text style={styles.contactBtnText}>خريطة</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+
+        {/* بانر إعلاني */}
+        <View style={styles.adBanner}>
+          <LinearGradient
+            colors={['#6200EA', '#9C27B0']}
+            start={{x: 0, y: 0}}
+            end={{x: 1, y: 0}}
+            style={styles.adGradient}
+          >
+            <Text style={styles.adButtonText}>أعلن عن خدماتك معنا</Text>
+            <Text style={styles.adButtonSubtext}>احصل على المزيد من العملاء عبر منصتنا</Text>
+            
+            {/* زر واتساب داخل البانر */}
+            <TouchableOpacity style={styles.whatsappInBanner} onPress={handleWhatsApp}>
+              <FontAwesome5 name="whatsapp" size={20} color="#fff" />
+              <Text style={styles.whatsappButtonText}>تواصل معنا عبر واتساب</Text>
+            </TouchableOpacity>
+          </LinearGradient>
+        </View>
+
+        {/* معلومات السيارة الأساسية */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>معلومات السيارة الأساسية</Text>
+          <View style={styles.infoGrid}>
+            <View style={styles.infoRow}>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>الطراز</Text>
+                <Text style={styles.infoValue}>{car.make || 'غير محدد'}</Text>
+              </View>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>الموديل</Text>
+                <Text style={styles.infoValue}>{car.model || 'غير محدد'}</Text>
               </View>
             </View>
             
-            <View style={styles.carDetails}>
-              <View style={styles.detailHeader}>
-                <Icon name="card-text" size={24} color={COLORS.primary} />
-                <Text style={styles.detailHeaderText}>بيانات السيارة</Text>
+            <View style={styles.infoRow}>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>سنة الصنع</Text>
+                <Text style={styles.infoValue}>{car.year || 'غير محدد'}</Text>
               </View>
-              
-              <View style={styles.detailsGrid}>
-                <View style={styles.detailGridItem}>
-                  <View style={styles.detailItem}>
-                    <Icon name="factory" size={24} color={COLORS.primary} style={styles.detailIcon} />
-                    <View style={styles.detailTextContainer}>
-                      <Text style={styles.detailLabel}>الشركة المصنعة</Text>
-                      <Text style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">
-                        {car.make || 'غير متوفر'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                
-                <View style={styles.detailGridItem}>
-                  <View style={styles.detailItem}>
-                    <Icon name="car-side" size={24} color={COLORS.primary} style={styles.detailIcon} />
-                    <View style={styles.detailTextContainer}>
-                      <Text style={styles.detailLabel}>الطراز</Text>
-                      <Text style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">
-                        {car.model || 'غير متوفر'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                
-                <View style={styles.detailGridItem}>
-                  <View style={styles.detailItem}>
-                    <Icon name="calendar" size={24} color={COLORS.primary} style={styles.detailIcon} />
-                    <View style={styles.detailTextContainer}>
-                      <Text style={styles.detailLabel}>سنة الصنع</Text>
-                      <Text style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">
-                        {car.year || 'غير متوفر'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                
-                <View style={styles.detailGridItem}>
-                  <View style={styles.detailItem}>
-                    <Icon name="palette" size={24} color={COLORS.primary} style={styles.detailIcon} />
-                    <View style={styles.detailTextContainer}>
-                      <Text style={styles.detailLabel}>اللون</Text>
-                      <Text style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">
-                        {car.color || 'غير محدد'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                
-                <View style={styles.detailGridItem}>
-                  <View style={styles.detailItem}>
-                    <Icon name="identifier" size={24} color={COLORS.primary} style={styles.detailIcon} />
-                    <View style={styles.detailTextContainer}>
-                      <Text style={styles.detailLabel}>رقم الشاسيه</Text>
-                      <Text style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">
-                        {car.chassis_number || 'غير متوفر'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                
-                <View style={styles.detailGridItem}>
-                  <View style={styles.detailItem}>
-                    <Icon name="calendar-clock" size={24} color={COLORS.primary} style={styles.detailIcon} />
-                    <View style={styles.detailTextContainer}>
-                      <Text style={styles.detailLabel}>تاريخ التسجيل</Text>
-                      <Text style={styles.detailValue} numberOfLines={1} ellipsizeMode="tail">
-                        {formatDate(car.created_at)}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>اللون</Text>
+                <Text style={styles.infoValue}>{car.color || 'غير محدد'}</Text>
               </View>
             </View>
-          </Surface>
-          
-          <Surface style={styles.card} elevation={4}>
-            <View style={styles.contentContainer}>
-              <View style={styles.sectionHeader}>
-                <View style={styles.headerIconContainer}>
-                  <Icon name="oil" size={24} color="#fff" />
-                </View>
-                <Text style={styles.sectionTitle}>معلومات الصيانة</Text>
+            
+            <View style={styles.infoRow}>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>رقم اللوحة</Text>
+                <Text style={styles.infoValue}>{car.plate_number || 'غير محدد'}</Text>
               </View>
-              
-              <Divider style={styles.coloredDivider} />
-              
-              <View style={styles.maintenanceInfo}>
-                <View style={styles.detailHeader}>
-                  <Icon name="oil-level" size={24} color={COLORS.primary} />
-                  <Text style={styles.detailHeaderText}>تفاصيل الزيت</Text>
-                </View>
-                
-                <View style={styles.maintenanceRow}>
-                  <View style={styles.maintenanceItem}>
-                    <View style={styles.maintenanceIcon}>
-                      <Icon name="oil" size={24} color={COLORS.primary} />
-                    </View>
-                    <View style={styles.maintenanceTextContainer}>
-                      <Text style={styles.maintenanceLabel}>نوع الزيت</Text>
-                      <Text style={styles.maintenanceValue}>{car.oil_type || 'غير متوفر'}</Text>
-                    </View>
-                  </View>
-                  
-                  <View style={styles.maintenanceItem}>
-                    <View style={styles.maintenanceIcon}>
-                      <Icon name="label" size={24} color={COLORS.primary} />
-                    </View>
-                    <View style={styles.maintenanceTextContainer}>
-                      <Text style={styles.maintenanceLabel}>تصنيف الزيت</Text>
-                      <Text style={styles.maintenanceValue}>{car.oil_grade || 'غير متوفر'}</Text>
-                    </View>
-                  </View>
-                </View>
-                
-                <View style={styles.maintenanceRow}>
-                  <View style={styles.maintenanceItem}>
-                    <View style={styles.maintenanceIcon}>
-                      <Icon name="calendar" size={24} color={COLORS.primary} />
-                    </View>
-                    <View style={styles.maintenanceTextContainer}>
-                      <Text style={styles.maintenanceLabel}>تاريخ آخر تغيير</Text>
-                      <Text style={styles.maintenanceValue}>{formatDate(car.last_oil_change_date)}</Text>
-                    </View>
-                  </View>
-                  
-                  <View style={styles.maintenanceItem}>
-                    <View style={styles.maintenanceIcon}>
-                      <Icon name="calendar-clock" size={24} color={COLORS.primary} />
-                    </View>
-                    <View style={styles.maintenanceTextContainer}>
-                      <Text style={styles.maintenanceLabel}>موعد التغيير القادم</Text>
-                      <Text style={[
-                        styles.maintenanceValue,
-                        {color: getNextOilChangeDate() === 'متأخر عن الموعد' ? '#ff6b6b' : '#4CAF50'}
-                      ]}>
-                        {getNextOilChangeDate()}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                
-                <View style={styles.detailHeader}>
-                  <Icon name="filter" size={24} color={COLORS.primary} />
-                  <Text style={styles.detailHeaderText}>حالة الفلاتر</Text>
-                </View>
-                
-                <View style={styles.maintenanceRow}>
-                  {car.air_filter_changed ? (
-                    <View style={styles.maintenanceItem}>
-                      <View style={styles.maintenanceIcon}>
-                        <Icon name="air-filter" size={24} color={COLORS.primary} />
-                      </View>
-                      <View style={styles.maintenanceTextContainer}>
-                        <Text style={styles.maintenanceLabel}>فلتر الهواء</Text>
-                        <View style={styles.filterChangedContainer}>
-                          <Icon name="check-circle-outline" size={18} color="#4CAF50" />
-                          <Text style={[styles.maintenanceValue, styles.goodStatus]}> تم التغيير</Text>
-                        </View>
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={[styles.maintenanceItem, styles.grayFilter]}>
-                      <View style={styles.maintenanceIcon}>
-                        <Icon name="air-filter" size={24} color="#999" />
-                      </View>
-                      <View style={styles.maintenanceTextContainer}>
-                        <Text style={[styles.maintenanceLabel, {color: '#999'}]}>فلتر الهواء</Text>
-                        <Text style={[styles.maintenanceValue, {color: '#999'}]}>
-                          لم يتم التغيير
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-                  
-                  {car.oil_filter_changed ? (
-                    <View style={styles.maintenanceItem}>
-                      <View style={styles.maintenanceIcon}>
-                        <Icon name="oil-level" size={24} color={COLORS.primary} />
-                      </View>
-                      <View style={styles.maintenanceTextContainer}>
-                        <Text style={styles.maintenanceLabel}>فلتر الزيت</Text>
-                        <View style={styles.filterChangedContainer}>
-                          <Icon name="check-circle-outline" size={18} color="#4CAF50" />
-                          <Text style={[styles.maintenanceValue, styles.goodStatus]}> تم التغيير</Text>
-                        </View>
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={[styles.maintenanceItem, styles.grayFilter]}>
-                      <View style={styles.maintenanceIcon}>
-                        <Icon name="oil-level" size={24} color="#999" />
-                      </View>
-                      <View style={styles.maintenanceTextContainer}>
-                        <Text style={[styles.maintenanceLabel, {color: '#999'}]}>فلتر الزيت</Text>
-                        <Text style={[styles.maintenanceValue, {color: '#999'}]}>
-                          لم يتم التغيير
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-                </View>
-                
-                <View style={styles.maintenanceRow}>
-                  {car.cabin_filter_changed ? (
-                    <View style={styles.maintenanceItem}>
-                      <View style={styles.maintenanceIcon}>
-                        <Icon name="air-conditioner" size={24} color={COLORS.primary} />
-                      </View>
-                      <View style={styles.maintenanceTextContainer}>
-                        <Text style={styles.maintenanceLabel}>فلتر المكيف</Text>
-                        <View style={styles.filterChangedContainer}>
-                          <Icon name="check-circle-outline" size={18} color="#4CAF50" />
-                          <Text style={[styles.maintenanceValue, styles.goodStatus]}> تم التغيير</Text>
-                        </View>
-                      </View>
-                    </View>
-                  ) : (
-                    <View style={[styles.maintenanceItem, styles.grayFilter]}>
-                      <View style={styles.maintenanceIcon}>
-                        <Icon name="air-conditioner" size={24} color="#999" />
-                      </View>
-                      <View style={styles.maintenanceTextContainer}>
-                        <Text style={[styles.maintenanceLabel, {color: '#999'}]}>فلتر المكيف</Text>
-                        <Text style={[styles.maintenanceValue, {color: '#999'}]}>
-                          لم يتم التغيير
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-                </View>
-                
-                {car.last_oil_change_date && (
-                  <View style={styles.progressContainer}>
-                    <View style={styles.detailHeader}>
-                      <Icon name="information" size={24} color={COLORS.primary} />
-                      <Text style={styles.detailHeaderText}>معلومات آخر صيانة</Text>
-                    </View>
-                    
-                    <View style={styles.lastServiceInfo}>
-                      <View style={styles.lastServiceItem}>
-                        <Text style={styles.lastServiceLabel}>تاريخ آخر صيانة:</Text>
-                        <Text style={styles.lastServiceValue}>{formatDate(car.last_service_date || car.last_oil_change_date)}</Text>
-                      </View>
-                      
-                      {car.last_oil_change_odometer && (
-                        <View style={styles.lastServiceItem}>
-                          <Text style={styles.lastServiceLabel}>قراءة العداد عند آخر صيانة:</Text>
-                          <Text style={styles.lastServiceValue}>{car.last_oil_change_odometer} كم</Text>
-                        </View>
-                      )}
-                      
-                      {car.oil_type && (
-                        <View style={styles.lastServiceItem}>
-                          <Text style={styles.lastServiceLabel}>تفاصيل الزيت:</Text>
-                          <Text style={styles.lastServiceValue}>{car.oil_type} {car.oil_grade || ''}</Text>
-                        </View>
-                      )}
-                      
-                      {car.next_service_notes && (
-                        <View style={styles.lastServiceItem}>
-                          <Text style={styles.lastServiceLabel}>ملاحظات:</Text>
-                          <Text style={styles.lastServiceValue}>{car.next_service_notes}</Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                )}
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>رقم الشاصي</Text>
+                <Text style={styles.infoValue}>{car.chassis_number?.slice(0, 10) || 'غير محدد'}</Text>
               </View>
             </View>
-          </Surface>
-          
-          {serviceVisits.length > 0 && (
-            <Surface style={styles.card} elevation={4}>
-              <View style={styles.contentContainer}>
-                <View style={styles.sectionHeader}>
-                  <View style={styles.headerIconContainer}>
-                    <Icon name="history" size={24} color="#fff" />
-                  </View>
-                  <Text style={styles.sectionTitle}>سجل الصيانة</Text>
-                </View>
-                
-                <Divider style={styles.coloredDivider} />
-                
-                <View style={styles.serviceHistory}>
-                  {serviceVisits.slice(0, 5).map((visit, index) => (
-                    <View key={visit.id} style={styles.serviceVisitItem}>
-                      <View style={styles.serviceVisitIcon}>
-                        <Icon name="wrench" size={24} color={COLORS.primary} />
-                      </View>
-                      <View style={styles.serviceVisitContent}>
-                        <Text style={styles.serviceVisitTitle}>
-                          {visit.service_categories?.name || 'صيانة'}
-                        </Text>
-                        <Text style={styles.serviceVisitDate}>{formatDate(visit.date)}</Text>
-                        <Text style={styles.serviceVisitMileage}>
-                          {visit.mileage ? `قراءة العداد: ${visit.mileage} كم` : ''}
-                        </Text>
-                        {visit.notes && (
-                          <Text style={styles.serviceVisitNotes} numberOfLines={2}>
-                            {visit.notes}
-                          </Text>
-                        )}
-                      </View>
-                    </View>
-                  ))}
-                  
-                  {serviceVisits.length > 5 && (
-                    <View style={styles.moreVisitsContainer}>
-                      <Text style={styles.moreVisitsText}>
-                        يوجد {serviceVisits.length - 5} زيارات إضافية في السجل
-                      </Text>
-                    </View>
-                  )}
-                </View>
+          </View>
+        </View>
+
+        {/* معلومات الزيت والصيانة */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>معلومات الزيت والصيانة</Text>
+          <View style={styles.infoGrid}>
+            <View style={styles.infoRow}>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>تصنيف الزيت</Text>
+                <Text style={styles.infoValue}>{car.oil_type || 'غير محدد'}</Text>
               </View>
-            </Surface>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>درجة الزيت</Text>
+                <Text style={styles.infoValue}>{car.oil_grade || 'غير محدد'}</Text>
+              </View>
+            </View>
+            
+            <View style={styles.infoRow}>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>العداد الحالي</Text>
+                <Text style={styles.infoValue}>{car.current_odometer ? `${car.current_odometer} كم` : 'غير محدد'}</Text>
+              </View>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>آخر تغيير للزيت</Text>
+                <Text style={styles.infoValue}>{formatDate(car.last_oil_change_date)}</Text>
+              </View>
+            </View>
+          </View>
+          
+          {/* حالة الفلاتر */}
+          <View style={styles.filterStatusContainer}>
+            <Text style={styles.filterTitle}>الفلاتر</Text>
+            <View style={styles.filterStatus}>
+              <View style={styles.filterItem}>
+                <Text style={styles.filterName}>فلتر زيت</Text>
+                <Text style={[
+                  styles.filterStatusText,
+                  car.oil_filter_changed ? styles.filterChanged : styles.filterNotChanged
+                ]}>
+                  {car.oil_filter_changed ? 'تم التغيير' : 'لم يتم التغيير'}
+                </Text>
+              </View>
+              
+              <View style={styles.filterItem}>
+                <Text style={styles.filterName}>فلتر هواء</Text>
+                <Text style={[
+                  styles.filterStatusText,
+                  car.air_filter_changed ? styles.filterChanged : styles.filterNotChanged
+                ]}>
+                  {car.air_filter_changed ? 'تم التغيير' : 'لم يتم التغيير'}
+                </Text>
+              </View>
+              
+              <View style={styles.filterItem}>
+                <Text style={styles.filterName}>فلتر مكيف</Text>
+                <Text style={[
+                  styles.filterStatusText,
+                  car.cabin_filter_changed ? styles.filterChanged : styles.filterNotChanged
+                ]}>
+                  {car.cabin_filter_changed ? 'تم التغيير' : 'لم يتم التغيير'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* جدول الصيانات */}
+        <View style={styles.sectionContainer}>
+          <View style={styles.sectionTitleRow}>
+            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+              <Ionicons name="chevron-down" size={18} color="#2196F3" style={{marginLeft: 5}} />
+              <Text style={styles.sectionTitle}>جدول الصيانات</Text>
+            </View>
+          </View>
+
+          <View style={styles.tableHeader}>
+            <Text style={[styles.tableHeaderText, {flex: 1.5}]}>اسم الصيانة</Text>
+            <Text style={[styles.tableHeaderText, {flex: 1}]}>التاريخ</Text>
+            <Text style={[styles.tableHeaderText, {flex: 1}]}>الكيلومترات</Text>
+            <Text style={[styles.tableHeaderText, {flex: 1}]}>العداد القادم</Text>
+          </View>
+          
+          {serviceRecords.length > 0 ? (
+            serviceRecords.map((record, index) => {
+              // جمع كل أنواع الصيانة في سجل واحد
+              const serviceTypes = [];
+              
+              // إضافة نوع الصيانة حسب service_type من الجدول إن وجد
+              if (record.service_type) {
+                serviceTypes.push(record.service_type);
+              } else {
+                // إضافة أنواع الصيانة حسب العمليات التي تمت
+                if (record.oil_type) {
+                  serviceTypes.push('تغيير زيت');
+                }
+                
+                if (record.oil_filter_changed) {
+                  serviceTypes.push('تغيير فلتر زيت');
+                }
+                
+                if (record.air_filter_changed) {
+                  serviceTypes.push('تغيير فلتر هواء');
+                }
+                
+                if (record.cabin_filter_changed) {
+                  serviceTypes.push('تغيير فلتر مكيف');
+                }
+                
+                // إذا كان هناك ملاحظات، أضفها كنوع صيانة
+                if (record.notes) {
+                  serviceTypes.push(record.notes);
+                }
+                
+                // إذا لم يكن هناك أي نوع صيانة محدد
+                if (serviceTypes.length === 0) {
+                  serviceTypes.push('صيانة دورية');
+                }
+              }
+              
+              // دمج أنواع الصيانة في نص واحد
+              const maintenanceType = serviceTypes.join(' + ');
+              
+              return (
+                <View key={record.id || index} style={styles.maintenanceCard}>
+                  <View style={styles.maintenanceRow}>
+                    <Text style={styles.maintenanceName}>{maintenanceType}</Text>
+                    <Text style={styles.maintenanceDate}>{formatDate(record.date)}</Text>
+                  </View>
+                  <Divider style={styles.maintenanceDivider} />
+                  <View style={styles.maintenanceRow}>
+                    <View style={styles.odometerContainer}>
+                      <Text style={styles.odometerLabel}>الكيلومترات</Text>
+                      <Text style={styles.odometerValue}>{record.mileage.toLocaleString()}</Text>
+                    </View>
+                    <View style={styles.odometerContainer}>
+                      <Text style={styles.odometerLabel}>العداد القادم</Text>
+                      <Text style={styles.odometerValue}>{record.next_service_mileage.toLocaleString()}</Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })
+          ) : (
+            <View style={styles.emptyRecords}>
+              <MaterialCommunityIcons name="calendar-remove" size={48} color="#BDBDBD" />
+              <Text style={styles.emptyText}>لا توجد سجلات صيانة</Text>
+            </View>
           )}
           
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>تم إنشاؤه بواسطة YazCar</Text>
-            <Text style={styles.footerCopyright}>© {new Date().getFullYear()} جميع الحقوق محفوظة</Text>
-          </View>
-        </ScrollView>
-      </Animated.View>
+          {/* زر إضافة صيانة جديدة */}
+          <TouchableOpacity 
+            style={styles.addServiceBtn}
+            onPress={() => router.push({
+              pathname: "/shop/add-service-visit",
+              params: { carId: id }
+            })}
+          >
+            <Text style={styles.addServiceText}>إضافة صيانة جديدة</Text>
+            <Ionicons name="add" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
+        
+        {/* مسافة إضافية للتمرير */}
+        <View style={{ height: 30 }} />
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -818,646 +573,473 @@ export default function PublicCarDetailsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.primary,
+    backgroundColor: '#fff',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    backgroundColor: '#fff',
+  },
+  backBtn: {
+    padding: 5,
+  },
+  headerTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
   },
   loadingText: {
-    marginTop: 10,
+    marginTop: 16,
     fontSize: 16,
-    color: COLORS.primary,
+    color: '#666',
   },
-  centerContent: {
+  errorContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
-  topSection: {
-    backgroundColor: COLORS.primary,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+  errorText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666',
     textAlign: 'center',
-    flex: 1,
+    marginBottom: 24,
   },
   backButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: COLORS.primary,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
   },
-  homeButton: {
-    padding: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+  backButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
-  rightPlaceholder: {
-    width: 40,
-  },
-  bottomSection: {
+  scrollView: {
     flex: 1,
-    backgroundColor: '#ffffff',
-    borderTopLeftRadius: 30,
-    borderTopRightRadius: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -3 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 10,
+    backgroundColor: '#f8f8f8',
   },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 20,
-    paddingBottom: 30,
+  // تصميم جديد لمعلومات المحل في الأعلى
+  shopProfileContainer: {
+    backgroundColor: '#fff',
+    paddingBottom: 10,
+    elevation: 1,
   },
-  topCard: {
-    borderRadius: 15,
-    overflow: 'hidden',
-    marginBottom: 16,
-    backgroundColor: '#ffffff',
-  },
-  card: {
-    borderRadius: 15,
-    overflow: 'hidden',
-    marginBottom: 16,
-    backgroundColor: '#ffffff',
-  },
-  carBanner: {
-    height: 150,
+  bannerContainer: {
+    width: '100%',
+    height: 140,
     position: 'relative',
   },
-  gradientBanner: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
+  bannerImage: {
+    width: '100%',
+    height: '100%',
   },
-  carIconContainer: {
+  defaultBanner: {
+    width: '100%',
+    height: '100%',
+  },
+  shopLogoContainer: {
     position: 'absolute',
-    top: 20,
-    left: 20,
+    bottom: -40,
+    right: 15,
+    borderRadius: 50,
+    borderWidth: 3,
+    borderColor: '#fff',
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    backgroundColor: '#fff',
+    zIndex: 10,
+  },
+  shopLogo: {
     width: 80,
     height: 80,
     borderRadius: 40,
+  },
+  defaultShopLogo: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#3B82F6',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
-  carHeader: {
+  badgesContainer: {
     flexDirection: 'row',
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    padding: 15,
-    backgroundColor: '#ffffff',
+    marginTop: 10,
+    marginRight: 105,
+    zIndex: 5,
+    position: 'relative',
+    top: -5,
+    gap: 12,
   },
-  carTitleContainer: {
-    flex: 1,
-    alignItems: 'flex-end',
-  },
-  carTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 5,
-  },
-  carSubtitle: {
-    fontSize: 16,
-    color: '#666',
-    marginBottom: 10,
-  },
-  plateContainer: {
-    flexDirection: 'row',
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-  },
-  plateNumber: {
-    color: '#333',
-    marginRight: 8,
-    fontWeight: 'bold',
-  },
-  coloredDivider: {
-    height: 2,
-    backgroundColor: COLORS.primary,
-  },
-  carStatusContainer: {
-    padding: 15,
-  },
-  carStatusItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  carStatusText: {
-    fontSize: 14,
-    color: '#333',
-    marginLeft: 10,
-  },
-  carDetails: {
-    padding: 15,
-  },
-  detailHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  detailHeaderText: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: 'bold',
-    marginLeft: 10,
-  },
-  detailsGrid: {
+  verifiedBadge: {
     flexDirection: 'row-reverse',
-    flexWrap: 'wrap',
-    justifyContent: 'flex-start',
-  },
-  detailGridItem: {
-    width: '48%',
-    marginBottom: 10,
-  },
-  detailItem: {
-    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    backgroundColor: '#f9f9f9',
-    padding: 10,
-    borderRadius: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.primary,
+    backgroundColor: 'rgba(0, 200, 83, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 200, 83, 0.5)',
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
   },
-  detailIcon: {
-    marginLeft: 10,
+  verifiedIcon: {
+    marginRight: 8,
   },
-  detailTextContainer: {
-    flex: 1,
-    alignItems: 'flex-end',
-  },
-  detailLabel: {
+  verifiedText: {
+    color: '#00703C',
     fontSize: 12,
-    color: '#888',
-    marginBottom: 3,
+    fontWeight: 'bold',
   },
-  detailValue: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
+  workingHoursBadge: {
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    backgroundColor: 'rgba(25, 118, 210, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: 'rgba(25, 118, 210, 0.5)',
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
   },
-  contentContainer: {
-    padding: 15,
+  workingHoursIcon: {
+    marginRight: 8,
   },
-  sectionHeader: {
+  workingHoursText: {
+    color: '#0D47A1',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  shopInfoContainer: {
+    padding: 0,
+    marginTop: 10,
+    marginBottom: 5,
+    width: '100%',
+  },
+  shopInfoCard: {
+    width: '100%',
+    alignItems: 'flex-end',
+    paddingRight: 15,
+    marginLeft: 0,
+    marginRight: 0,
+  },
+  detailInfoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 6,
   },
-  headerIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 10,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: COLORS.primary,
-  },
-  errorSurface: {
-    padding: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    width: '85%',
-    elevation: 4,
-    backgroundColor: '#fff',
-  },
-  errorText: {
-    fontSize: 16,
-    color: '#666',
-    marginVertical: 15,
-    textAlign: 'center',
-  },
-  primaryButton: {
-    backgroundColor: COLORS.primary,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    marginTop: 10,
-  },
-  primaryButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  shopInfo: {
-    marginTop: 10,
+  infoIcon: {
+    marginLeft: 6,
   },
   shopName: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+    textAlign: 'right',
+    marginBottom: 8,
+  },
+  shopPhone: {
+    fontSize: 14,
+    color: '#777',
+    textAlign: 'right',
+  },
+  shopAddress: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'right',
+  },
+  contactBtns: {
+    flexDirection: 'row',
+    paddingHorizontal: 15,
+    marginTop: 10,
+  },
+  contactBtn: {
+    flex: 1,
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    marginHorizontal: 3,
+    borderRadius: 6,
+  },
+  callBtn: {
+    backgroundColor: '#1976D2',
+  },
+  locationBtn: {
+    backgroundColor: '#E53935',
+  },
+  whatsappBtn: {
+    backgroundColor: '#00C853',
+  },
+  contactBtnText: {
+    color: '#fff',
+    marginRight: 5,
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  adBanner: {
+    marginHorizontal: 15,
+    marginVertical: 15,
+    borderRadius: 10,
+    overflow: 'hidden',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+  adGradient: {
+    paddingTop: 15,
+    paddingBottom: 5,
+    paddingHorizontal: 15,
+    alignItems: 'center',
+  },
+  adButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
     textAlign: 'center',
+  },
+  adButtonSubtext: {
+    color: 'rgba(255,255,255,0.95)',
+    fontSize: 13,
+    marginTop: 5,
+    textAlign: 'center',
+  },
+  whatsappInBanner: {
+    backgroundColor: '#00C853',
+    flexDirection: 'row-reverse',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 6,
+    marginTop: 15,
+    marginBottom: 10,
+    width: '100%',
+  },
+  whatsappButtonText: {
+    color: '#fff',
+    marginRight: 8,
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  carInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 15,
+    marginBottom: 10,
+  },
+  carName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  carPlate: {
+    fontSize: 14,
+    color: '#777',
+    marginTop: 2,
+  },
+  sectionContainer: {
+    backgroundColor: '#fff',
+    marginTop: 10,
+    paddingVertical: 15,
+    paddingHorizontal: 15,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 15,
+    textAlign: 'right',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    paddingBottom: 5,
+  },
+  infoGrid: {
+    paddingHorizontal: 5,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginBottom: 15,
   },
-  shopContact: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 20,
-  },
-  contactButton: {
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    backgroundColor: '#f0f0f0',
-    minWidth: 100,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  contactText: {
-    marginTop: 5,
-    color: COLORS.primary,
-    fontWeight: '500',
-  },
-  shopDetails: {
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-    paddingTop: 15,
-  },
-  shopDetailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-    backgroundColor: '#f9f9f9',
-    padding: 8,
-    borderRadius: 8,
-  },
-  shopDetailIcon: {
-    marginLeft: 10,
-  },
-  shopDetailText: {
-    fontSize: 14,
-    color: '#333',
-    textAlign: 'right',
+  infoItem: {
     flex: 1,
+    alignItems: 'flex-end',
   },
-  maintenanceInfo: {
+  infoLabel: {
+    fontSize: 12,
+    color: '#777',
+    marginBottom: 2,
+  },
+  infoValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  filterStatusContainer: {
     marginTop: 10,
+  },
+  filterTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 10,
+    textAlign: 'right',
+  },
+  filterStatus: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  filterItem: {
+    alignItems: 'center',
+    width: '30%',
+  },
+  filterName: {
+    fontSize: 13,
+    color: '#333',
+    fontWeight: 'bold',
+    marginBottom: 5,
+    textAlign: 'center',
+  },
+  filterStatusText: {
+    fontSize: 11,
+    textAlign: 'center',
+  },
+  filterChanged: {
+    color: '#333',
+  },
+  filterNotChanged: {
+    color: '#9E9E9E',
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+    paddingBottom: 5,
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    paddingVertical: 10,
+    paddingHorizontal: 5,
+    marginBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  tableHeaderText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#555',
+    textAlign: 'center',
+  },
+  maintenanceCard: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    marginBottom: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#eee',
   },
   maintenanceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  maintenanceItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    width: '48%',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    backgroundColor: '#f9f9f9',
-    borderRadius: 8,
-    padding: 8,
+  maintenanceName: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1.5,
+    textAlign: 'right',
   },
-  maintenanceIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 15,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  maintenanceTextContainer: {
+  maintenanceDate: {
+    fontSize: 13,
+    color: '#333',
     flex: 1,
-    alignItems: 'flex-end',
+    textAlign: 'center',
   },
-  maintenanceLabel: {
+  maintenanceDetails: {
     fontSize: 12,
+    color: '#666',
+    flex: 1,
+    textAlign: 'center',
+  },
+  maintenanceNextService: {
+    fontSize: 12,
+    color: '#666',
+    flex: 1,
+    textAlign: 'center',
+  },
+  maintenanceDivider: {
+    marginVertical: 8,
+    backgroundColor: '#eee',
+  },
+  odometerContainer: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  odometerLabel: {
+    fontSize: 11,
     color: '#888',
     marginBottom: 3,
   },
-  maintenanceValue: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
-  },
-  progressContainer: {
-    marginTop: 15,
-    backgroundColor: '#f9f9f9',
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  progressLabel: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '600',
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  progressBarContainer: {
-    height: 12,
-    backgroundColor: '#e0e0e0',
-    borderRadius: 6,
-    overflow: 'hidden',
-  },
-  progressBar: {
-    height: '100%',
-  },
-  progressDetail: {
-    marginTop: 10,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  progressDetailItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  progressDetailLabel: {
-    fontSize: 12,
-    color: '#888',
-    marginRight: 10,
-  },
-  progressDetailValue: {
-    fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
-  },
-  serviceHistory: {
-    marginTop: 10,
-  },
-  serviceVisitItem: {
-    flexDirection: 'row',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    backgroundColor: '#f9f9f9',
-    marginBottom: 8,
-    borderRadius: 8,
-    padding: 10,
-  },
-  serviceVisitIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 15,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  serviceVisitContent: {
-    flex: 1,
-    alignItems: 'flex-end',
-  },
-  serviceVisitTitle: {
+  odometerValue: {
     fontSize: 15,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 4,
+    color: '#444',
   },
-  serviceVisitDate: {
-    fontSize: 13,
-    color: '#888',
-    marginBottom: 4,
-  },
-  serviceVisitMileage: {
-    fontSize: 13,
-    color: '#666',
-    marginBottom: 4,
-  },
-  serviceVisitNotes: {
-    fontSize: 13,
-    color: '#666',
-    textAlign: 'right',
-  },
-  moreVisitsContainer: {
-    padding: 10,
+  emptyRecords: {
     alignItems: 'center',
+    justifyContent: 'center',
+    padding: 30,
   },
-  moreVisitsText: {
-    fontSize: 14,
-    color: COLORS.primary,
-    fontWeight: '500',
-  },
-  footer: {
-    padding: 15,
-    backgroundColor: '#f9f9f9',
-    alignItems: 'center',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    marginTop: 15,
-  },
-  footerText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  footerCopyright: {
-    fontSize: 14,
-    color: '#666',
-  },
-  goodStatus: {
-    color: '#4CAF50',
-  },
-  warningStatus: {
-    color: '#ff6b6b',
-  },
-  lastServiceInfo: {
+  emptyText: {
     marginTop: 10,
-  },
-  lastServiceItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 5,
-  },
-  lastServiceLabel: {
-    fontSize: 12,
-    color: '#888',
-    marginRight: 10,
-  },
-  lastServiceValue: {
     fontSize: 14,
-    color: '#333',
-    fontWeight: '500',
+    color: '#999',
   },
-  filterChangedContainer: {
-    flexDirection: 'row',
+  addServiceBtn: {
+    backgroundColor: '#1976D2',
+    borderRadius: 6,
+    flexDirection: 'row-reverse',
     alignItems: 'center',
-  },
-  grayFilter: {
-    backgroundColor: '#f0f0f0',
-  },
-  ownerCard: {
-    borderRadius: 15,
-    overflow: 'hidden',
-    marginBottom: 16,
-    backgroundColor: '#ffffff',
-  },
-  ownerBanner: {
-    padding: 15,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  ownerInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  shopLogoContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-    marginLeft: 15,
-    borderWidth: 2,
-    borderColor: '#ffffff',
-  },
-  shopLogo: {
-    width: '100%',
-    height: '100%',
-  },
-  shopLogoPlaceholder: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-  },
-  ownerTextInfo: {
-    alignItems: 'flex-end',
-  },
-  shopNameBanner: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 5,
-  },
-  ownerName: {
-    fontSize: 14,
-    color: '#f0f0f0',
-    marginBottom: 10,
-  },
-  ownerContact: {
-    flexDirection: 'row',
-  },
-  ownerContactButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 8,
-  },
-  verification: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingVertical: 12,
     paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
+    marginTop: 15,
+    marginHorizontal: 5,
   },
-  verificationText: {
-    color: '#ffffff',
-    fontSize: 12,
+  addServiceText: {
+    color: '#fff',
     fontWeight: 'bold',
-    marginLeft: 5,
-  },
-  ownerDetail: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  ownerDetailText: {
-    fontSize: 12,
-    color: '#f0f0f0',
-    marginRight: 5,
-  },
-  adCard: {
-    borderRadius: 15,
-    overflow: 'hidden',
-    marginBottom: 16,
-    backgroundColor: '#ffffff',
-  },
-  adBanner: {
-    padding: 15,
-  },
-  adContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  adTextContainer: {
-    flex: 1,
-    alignItems: 'flex-end',
-  },
-  adTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 6,
-  },
-  adDescription: {
-    fontSize: 12,
-    color: '#f0f0f0',
-    marginBottom: 12,
-    textAlign: 'right',
-  },
-  whatsappButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#25D366',
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-  },
-  whatsappButtonText: {
-    color: '#ffffff',
     marginRight: 8,
-    fontWeight: 'bold',
-    fontSize: 12,
-  },
-  adImageContainer: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-    marginLeft: 10,
-  },
-  adImagePlaceholder: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
+    fontSize: 14,
   },
 }); 

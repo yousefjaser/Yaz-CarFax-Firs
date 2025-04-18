@@ -29,12 +29,27 @@ export default function AdminDashboard() {
   // فتح الdrawer باستخدام الدالة العالمية - نفس طريقة shop-dashboard
   const openDrawer = () => {
     try {
+      // منع الاستدعاءات المتكررة
+      if (global._isOpeningAdminDrawer) {
+        console.log("تم تجاهل طلب فتح القائمة - القائمة تفتح حالياً");
+        return;
+      }
+      
+      // وضع علامة أن الفتح قيد التنفيذ
+      global._isOpeningAdminDrawer = true;
+      
+      // حماية إضافية للجوال مع تأخير إزالة العلامة
+      setTimeout(() => {
+        global._isOpeningAdminDrawer = false;
+      }, Platform.OS === 'ios' ? 800 : 500);
+      
       // نستخدم الdrawer المخصص فقط
-      if (global && global.openDrawer) {
-        global.openDrawer();
+      if (global && global.openAdminDrawer) {
+        global.openAdminDrawer();
       }
       // نلغي الخيار البديل لتجنب التعارض
     } catch (error) {
+      global._isOpeningAdminDrawer = false;
       console.error('خطأ في فتح القائمة:', error);
     }
   };

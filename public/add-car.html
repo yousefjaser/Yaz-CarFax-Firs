@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>إضافة سيارة جديدة | ياز كار - تسجيل سيارتك في أكبر منصة لتتبع الصيانة</title>
+    <meta name="description" content="سجّل سيارتك في منصة ياز كار، احصل على رمز QR خاص بسيارتك، وابدأ بتتبع سجل الصيانة الكامل، وضمان جودة الخدمة، وزيادة قيمة سيارتك عند البيع في فلسطين">
+    <meta name="keywords" content="تسجيل سيارة, إضافة سيارة جديدة, ياز كار, رمز QR للسيارة, توثيق صيانة السيارة, فلسطين, سجل صيانة السيارة">
+    
+    <!-- Open Graph tags للمشاركة عبر وسائل التواصل الاجتماعي -->
+    <meta property="og:title" content="إضافة سيارة جديدة | ياز كار - تسجيل سيارتك في منصة تتبع الصيانة">
+    <meta property="og:description" content="سجّل سيارتك في منصة ياز كار، احصل على رمز QR خاص بها، وابدأ بتتبع سجل الصيانة الكامل">
+    <meta property="og:image" content="https://yazcar.xyz/assets/add-car-preview.jpg">
+    <meta property="og:url" content="https://yazcar.xyz/shop/add-car">
+    <meta property="og:type" content="website">
+    
+    <!-- Twitter Card tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="إضافة سيارة جديدة | ياز كار">
+    <meta name="twitter:description" content="سجّل سيارتك في منصة ياز كار، احصل على رمز QR خاص بها">
+    <meta name="twitter:image" content="https://yazcar.xyz/assets/add-car-preview.jpg">
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.rtl.min.css">
+    <style>
+        body { 
+            font-family: 'Tajawal', sans-serif; 
+            padding-top: 20px; 
+            background-color: #f8f9fa;
+        }
+        .section {
+            margin: 30px 0;
+            padding: 25px;
+            border-radius: 8px;
+            background-color: white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .car-image {
+            max-width: 100%;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        h1, h2 {
+            color: #083c70;
+        }
+        .cta-button {
+            background-color: #083c70;
+            color: white;
+            padding: 10px 25px;
+            border-radius: 25px;
+            font-weight: bold;
+            text-decoration: none;
+            display: inline-block;
+            margin-top: 15px;
+        }
+        .benefits-list li {
+            margin-bottom: 15px;
+        }
+        .qr-code-image {
+            max-width: 200px;
+            display: block;
+            margin: 0 auto;
+        }
+        .steps-container {
+            counter-reset: step-counter;
+            margin-top: 30px;
+        }
+        .step {
+            position: relative;
+            padding-left: 50px;
+            margin-bottom: 25px;
+        }
+        .step:before {
+            content: counter(step-counter);
+            counter-increment: step-counter;
+            position: absolute;
+            left: 0;
+            top: 0;
+            background-color: #083c70;
+            color: white;
+            width: 35px;
+            height: 35px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="text-center mb-5">
+            <h1>إضافة سيارة جديدة إلى منصة ياز كار</h1>
+            <p class="lead">سجّل سيارتك الآن للاستفادة من خدمات تتبع الصيانة وزيادة قيمتها السوقية</p>
+            <a href="https://yazcar.xyz/shop/add-car" class="cta-button">أضف سيارتك الآن</a>
+        </header>
+
+        <div class="section text-center">
+            <img src="https://yazcar.xyz/assets/car-registration.jpg" alt="تسجيل سيارة جديدة" class="car-image">
+            <h2>لماذا تسجل سيارتك في ياز كار؟</h2>
+            <p>تسجيل سيارتك في منصة ياز كار يعني توثيق جميع عمليات الصيانة والإصلاح بطريقة رسمية وموثوقة، مما يضمن لك الحفاظ على قيمة سيارتك وتاريخها.</p>
+        </div>
+
+        <div class="section">
+            <h2 class="text-center mb-4">فوائد تسجيل سيارتك</h2>
+            <div class="row">
+                <div class="col-md-6">
+                    <ul class="benefits-list">
+                        <li><strong>توثيق تاريخ الصيانة:</strong> سجل دقيق لجميع عمليات الصيانة والإصلاح</li>
+                        <li><strong>زيادة قيمة السيارة:</strong> سيارات موثقة الصيانة تحصل على سعر أعلى عند البيع</li>
+                        <li><strong>سهولة متابعة الصيانة الدورية:</strong> تنبيهات تلقائية بمواعيد الصيانة القادمة</li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <ul class="benefits-list">
+                        <li><strong>رمز QR فريد:</strong> للوصول السريع إلى سجل سيارتك في أي وقت</li>
+                        <li><strong>تاريخ موثوق:</strong> يمكن للمشترين المحتملين التحقق من سجل السيارة</li>
+                        <li><strong>الحفاظ على الضمان:</strong> إثبات الالتزام بجداول الصيانة الدورية</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-7">
+                <div class="section">
+                    <h2>كيفية تسجيل سيارتك</h2>
+                    <div class="steps-container">
+                        <div class="step">
+                            <h4>قم بإنشاء حساب</h4>
+                            <p>سجل دخولك إلى حسابك أو قم بإنشاء حساب جديد في ياز كار.</p>
+                        </div>
+                        <div class="step">
+                            <h4>أدخل بيانات السيارة</h4>
+                            <p>أدخل المعلومات الأساسية للسيارة: الماركة، الموديل، سنة الصنع، رقم اللوحة، قراءة العداد الحالية.</p>
+                        </div>
+                        <div class="step">
+                            <h4>احصل على رمز QR</h4>
+                            <p>بعد التسجيل، ستحصل على رمز QR فريد لسيارتك يمكنك طباعته ووضعه في السيارة.</p>
+                        </div>
+                        <div class="step">
+                            <h4>ابدأ بتسجيل الصيانة</h4>
+                            <p>بعد كل زيارة لورشة الصيانة، قم بتسجيل تفاصيل الصيانة في النظام.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-5">
+                <div class="section text-center">
+                    <h3>رمز QR خاص بسيارتك</h3>
+                    <img src="https://yazcar.xyz/assets/qr-sample.png" alt="نموذج رمز QR" class="qr-code-image">
+                    <p class="mt-3">يمكنك لصق رمز QR الخاص بسيارتك في مكان آمن داخل السيارة ليسهل مسحه عند كل زيارة للصيانة.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section mt-4">
+            <h2 class="text-center mb-4">الأسئلة الشائعة</h2>
+            <div class="accordion" id="accordionFAQ">
+                <div class="accordion-item">
+                    <h3 class="accordion-header">
+                        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapse1">
+                            هل يمكنني تسجيل أكثر من سيارة؟
+                        </button>
+                    </h3>
+                    <div id="collapse1" class="accordion-collapse collapse show">
+                        <div class="accordion-body">
+                            نعم، يمكنك تسجيل عدد غير محدود من السيارات في حسابك الواحد.
+                        </div>
+                    </div>
+                </div>
+                <div class="accordion-item">
+                    <h3 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse2">
+                            ماذا لو فقدت رمز QR الخاص بسيارتي؟
+                        </button>
+                    </h3>
+                    <div id="collapse2" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            يمكنك الدخول إلى حسابك وطباعة رمز QR جديد في أي وقت من صفحة تفاصيل السيارة.
+                        </div>
+                    </div>
+                </div>
+                <div class="accordion-item">
+                    <h3 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse3">
+                            هل يمكنني نقل ملكية السيارة في النظام؟
+                        </button>
+                    </h3>
+                    <div id="collapse3" class="accordion-collapse collapse">
+                        <div class="accordion-body">
+                            نعم، عند بيع السيارة يمكنك نقل ملكيتها في النظام إلى المالك الجديد مع الاحتفاظ بسجل الصيانة الكامل.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mt-5 mb-5">
+            <a href="https://yazcar.xyz/shop/add-car" class="cta-button">سجل سيارتك الآن</a>
+        </div>
+    </div>
+
+    <!-- بيانات منظمة schema.org للصفحة -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebPage",
+      "name": "إضافة سيارة جديدة | ياز كار",
+      "description": "سجّل سيارتك في منصة ياز كار، احصل على رمز QR خاص بسيارتك، وابدأ بتتبع سجل الصيانة الكامل وزيادة قيمتها",
+      "url": "https://yazcar.xyz/shop/add-car",
+      "isPartOf": {
+        "@type": "WebSite",
+        "name": "ياز كار",
+        "url": "https://yazcar.xyz"
+      },
+      "primaryImageOfPage": {
+        "@type": "ImageObject",
+        "url": "https://yazcar.xyz/assets/car-registration.jpg"
+      },
+      "speakable": {
+        "@type": "SpeakableSpecification",
+        "cssSelector": ["h1", "h2", ".lead"]
+      }
+    }
+    </script>
+
+    <!-- بيانات منظمة FAQ للصفحة -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "FAQPage",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "هل يمكنني تسجيل أكثر من سيارة؟",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "نعم، يمكنك تسجيل عدد غير محدود من السيارات في حسابك الواحد."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "ماذا لو فقدت رمز QR الخاص بسيارتي؟",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "يمكنك الدخول إلى حسابك وطباعة رمز QR جديد في أي وقت من صفحة تفاصيل السيارة."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "هل يمكنني نقل ملكية السيارة في النظام؟",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "نعم، عند بيع السيارة يمكنك نقل ملكيتها في النظام إلى المالك الجديد مع الاحتفاظ بسجل الصيانة الكامل."
+          }
+        }
+      ]
+    }
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

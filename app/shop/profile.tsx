@@ -15,7 +15,8 @@ import {
   Alert,
   Dimensions,
   Modal,
-  FlatList
+  FlatList,
+  ActivityIndicator
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { COLORS } from '../constants';
@@ -24,12 +25,42 @@ import { useAuthStore } from '../utils/store';
 import { supabase } from '../config';
 import Loading from '../components/Loading';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Surface } from 'react-native-paper';
+import * as Location from 'expo-location';
+import { 
+  uploadToCloudinary, 
+  pickImage, 
+  takePicture, 
+  getBannerImageUrl, 
+  getProfileImageUrl 
+} from '../services/cloudinary';
 
-const { width } = Dimensions.get('window');
+// إضافة polyfill للـ crypto.getRandomValues لحل مشكلة uuid
+if (typeof global.crypto !== 'object') {
+  global.crypto = {};
+}
+
+if (typeof global.crypto.getRandomValues !== 'function') {
+  global.crypto.getRandomValues = function(array) {
+    for (let i = 0; i < array.length; i++) {
+      array[i] = Math.floor(Math.random() * 256);
+    }
+    return array;
+  };
+}
+
+const { width, height } = Dimensions.get('window');
+
+// دالة للحصول على المفتاح الصحيح حسب المنصة
+// إزالة هذه الدالة لأننا لن نستخدم Google Maps API بعد الآن
+// const getGoogleMapsApiKey = () => {
+//   return 'AIzaSyAWp1chILdfMqIjFk8uWXmPkaUTVKY1NHI'; // استخدام مفتاح ويب موحد لجميع المنصات
+// };
+
+// استخدام الدالة للحصول على المفتاح
+// const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKey();
 
 // قائمة البادئات الدولية للواتساب
-const COUNTRY_CODES = [
+const COUNTRY_CODES_LIST = [
   { code: '970', country: 'فلسطين 🇵🇸' },
   { code: '972', country: 'إسرائيل 🇮🇱' },
   { code: '20', country: 'مصر 🇪🇬' },
@@ -55,12 +86,20 @@ const COUNTRY_CODES = [
   { code: '98', country: 'إيران 🇮🇷' },
 ];
 
+// تعريف أيقونة TikTok المخصصة إذا لم تكن متوفرة في المكتبة الأساسية
+const TikTokIcon = ({ size, color }) => (
+  <View style={{ width: size, height: size, justifyContent: 'center', alignItems: 'center' }}>
+    <Text style={{ fontFamily: 'Arial', fontSize: size * 0.7, color: color, fontWeight: 'bold' }}>TT</Text>
+  </View>
+);
+
 export default function ShopProfile() {
   const router = useRouter();
   const { user } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [editMode, setEditMode] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [locationLoading, setLocationLoading] = useState(false);
   const [stats, setStats] = useState({
     carsCount: 0,
     servicesCount: 0,
@@ -75,19 +114,33 @@ export default function ShopProfile() {
   });
   
   const [shopData, setShopData] = useState({
+    id: '',
     shop_name: '',
-    location: '',
+    address: '',
+    coordinates: null,
+    banner_image: null,
+    logo_url: null,
+    phone: '',
     whatsapp: '',
     whatsapp_prefix: '966',
     description: '',
     working_hours: '',
+    working_days: 'السبت - الخميس',
     instagram: '',
     twitter: '',
     facebook: '',
-    services: []
+    tiktok: '',
+    gallery: [],
+    ratings: {
+      average: 4.7,
+      count: 125,
+    }
   });
   
   const [showPrefixPicker, setShowPrefixPicker] = useState(false);
+  // حالة لإظهار مربع حوار اختيار المواقع
+  const [showPlacesModal, setShowPlacesModal] = useState(false);
+  const [tempAddress, setTempAddress] = useState(''); // حالة مؤقتة لتخزين العنوان أثناء التعديل
   
   // تحميل بيانات المستخدم والمحل
   useEffect(() => {
@@ -170,16 +223,27 @@ export default function ShopProfile() {
         console.error('خطأ في تحميل بيانات المحل:', shopError);
       } else if (shopData) {
         setShopData({
+          id: shopData.id || '',
           shop_name: shopData.name || '',
-          location: shopData.location || '',
-          whatsapp: shopData.whatsapp || '',
+          address: shopData.address || '',
+          coordinates: shopData.coordinates || null,
+          banner_image: shopData.banner_image || null,
+          logo_url: shopData.logo_url || null,
+          phone: shopData.phone || '',
+          whatsapp: shopData.phone || '',
           whatsapp_prefix: shopData.whatsapp_prefix || '966',
           description: shopData.description || '',
           working_hours: shopData.working_hours || '',
+          working_days: shopData.working_days || 'السبت - الخميس',
           instagram: shopData.instagram || '',
           twitter: shopData.twitter || '',
           facebook: shopData.facebook || '',
-          services: shopData.services || []
+          tiktok: shopData.tiktok || '',
+          gallery: shopData.gallery || [],
+          ratings: shopData.ratings || {
+            average: 4.7,
+            count: 125
+          }
         });
       }
     } catch (error) {
@@ -211,56 +275,67 @@ export default function ShopProfile() {
         return;
       }
       
-      // تحقق من وجود الجدول وعرض حقوله
-      const { data: shopColumns, error: columnsError } = await supabase
-        .from('shops')
-        .select('*')
-        .limit(1);
+      // تجهيز بيانات المحل الأساسية
+      const basicShopData = {
+        name: shopData.shop_name,
+        address: shopData.address,
+        coordinates: shopData.coordinates,
+        phone: shopData.phone
+      };
+
+      // التحقق من وجود الأعمدة الإضافية قبل إضافتها للتحديث
+      // استخدام الدالة getTableColumns للحصول على أعمدة الجدول
+      const columns = await getTableColumns('shops');
       
-      if (columnsError) {
-        console.error('خطأ في التحقق من حقول الجدول:', columnsError);
+      // إضافة الحقول الاختيارية فقط إذا كانت موجودة في الجدول
+      const shopUpdateData = { ...basicShopData };
+      
+      if (columns.includes('whatsapp_prefix')) {
+        shopUpdateData.whatsapp_prefix = shopData.whatsapp_prefix;
       }
       
-      // إنشاء كائن للتحديث يحتوي فقط على الحقول الموجودة
-      const updateData = {};
+      if (columns.includes('description')) {
+        shopUpdateData.description = shopData.description;
+      }
       
-      // إضافة الحقول إلى كائن التحديث فقط إذا كانت موجودة في قاعدة البيانات
-      const firstShop = shopColumns?.[0] || {};
+      if (columns.includes('working_hours')) {
+        shopUpdateData.working_hours = shopData.working_hours;
+      }
       
-      // الحقول الأساسية التي يجب أن تكون موجودة
-      if ('name' in firstShop) updateData['name'] = shopData.shop_name;
-      if ('location' in firstShop) updateData['location'] = shopData.location;
-      if ('whatsapp' in firstShop) updateData['whatsapp'] = shopData.whatsapp;
+      if (columns.includes('working_days')) {
+        shopUpdateData.working_days = shopData.working_days;
+      }
       
-      // الحقول الإضافية التي قد تكون غير موجودة
-      if ('whatsapp_prefix' in firstShop) updateData['whatsapp_prefix'] = shopData.whatsapp_prefix;
-      if ('description' in firstShop) updateData['description'] = shopData.description;
-      if ('working_hours' in firstShop) updateData['working_hours'] = shopData.working_hours;
-      if ('instagram' in firstShop) updateData['instagram'] = shopData.instagram;
-      if ('twitter' in firstShop) updateData['twitter'] = shopData.twitter;
-      if ('facebook' in firstShop) updateData['facebook'] = shopData.facebook;
+      if (columns.includes('instagram')) {
+        shopUpdateData.instagram = shopData.instagram;
+      }
       
-      console.log('بيانات التحديث:', updateData);
+      if (columns.includes('twitter')) {
+        shopUpdateData.twitter = shopData.twitter;
+      }
       
-      // تحديث بيانات المحل فقط بالحقول الموجودة
+      if (columns.includes('facebook')) {
+        shopUpdateData.facebook = shopData.facebook;
+      }
+      
+      if (columns.includes('tiktok')) {
+        shopUpdateData.tiktok = shopData.tiktok;
+      }
+      
+      if (columns.includes('banner_image') && shopData.banner_image) {
+        shopUpdateData.banner_image = shopData.banner_image;
+      }
+      
+      console.log('البيانات المراد تحديثها:', shopUpdateData);
+      
       const { error: shopError } = await supabase
         .from('shops')
-        .update(updateData)
+        .update(shopUpdateData)
         .eq('owner_id', user.id);
       
       if (shopError) {
         console.error('خطأ في حفظ بيانات المحل:', shopError);
-        
-        // التعامل مع خطأ العمود غير الموجود
-        if (shopError.code === 'PGRST204') {
-          Alert.alert(
-            'تنبيه', 
-            'بعض الحقول غير موجودة في قاعدة البيانات. يرجى التواصل مع المطور لتحديث هيكل قاعدة البيانات.',
-            [{ text: 'حسناً' }]
-          );
-        } else {
-          Alert.alert('خطأ', 'حدث خطأ أثناء حفظ بيانات المحل');
-        }
+        Alert.alert('خطأ', 'حدث خطأ أثناء حفظ بيانات المحل');
         return;
       }
       
@@ -274,64 +349,29 @@ export default function ShopProfile() {
     }
   };
   
-  // فتح الواتساب
-  const openWhatsapp = () => {
-    if (!shopData.whatsapp) return;
-    
-    const prefix = shopData.whatsapp_prefix || '966';
-    let phoneNumber = shopData.whatsapp.replace(/\D/g, '');
-    
-    // إزالة الصفر من البداية إذا وجد
-    if (phoneNumber.startsWith('0')) {
-      phoneNumber = phoneNumber.substring(1);
+  // إضافة دالة للحصول على أعمدة الجدول
+  /**
+   * الحصول على أسماء الأعمدة في جدول معين
+   * @param tableName اسم الجدول
+   * @returns قائمة بأسماء الأعمدة
+   */
+  const getTableColumns = async (tableName: string): Promise<string[]> => {
+    try {
+      // استعلام للحصول على معلومات الأعمدة من جدول الوصف 
+      const { data, error } = await supabase
+        .rpc('get_table_columns', { p_table_name: tableName });
+      
+      if (error) {
+        console.error('خطأ في الحصول على أعمدة الجدول:', error);
+        return [];
+      }
+      
+      // تحويل النتيجة إلى مصفوفة من أسماء الأعمدة
+      return Array.isArray(data) ? data.map(col => col.column_name) : [];
+    } catch (error) {
+      console.error('خطأ غير متوقع في الحصول على أعمدة الجدول:', error);
+      return [];
     }
-    
-    const url = `https://wa.me/${prefix}${phoneNumber}`;
-    
-    Linking.canOpenURL(url)
-      .then(supported => {
-        if (supported) {
-          return Linking.openURL(url);
-        } else {
-          Alert.alert('خطأ', 'لا يمكن فتح تطبيق واتساب');
-        }
-      })
-      .catch(err => console.error('خطأ في فتح واتساب:', err));
-  };
-  
-  // فتح خرائط جوجل
-  const openMaps = () => {
-    if (!shopData.location) return;
-    
-    const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shopData.location)}`;
-    
-    Linking.canOpenURL(url)
-      .then(supported => {
-        if (supported) {
-          return Linking.openURL(url);
-        } else {
-          Alert.alert('خطأ', 'لا يمكن فتح تطبيق الخرائط');
-        }
-      })
-      .catch(err => console.error('خطأ في فتح الخرائط:', err));
-  };
-  
-  // الاتصال بالرقم
-  const callNumber = () => {
-    if (!profile.phone) return;
-    
-    const phoneNumber = profile.phone.replace(/\D/g, '');
-    const url = `tel:${phoneNumber}`;
-    
-    Linking.canOpenURL(url)
-      .then(supported => {
-        if (supported) {
-          return Linking.openURL(url);
-        } else {
-          Alert.alert('خطأ', 'لا يمكن الاتصال بالرقم');
-        }
-      })
-      .catch(err => console.error('خطأ في الاتصال:', err));
   };
   
   // فتح وسائل التواصل الاجتماعي
@@ -382,8 +422,299 @@ export default function ShopProfile() {
   
   // الحصول على اسم الدولة من البادئة
   const getCountryName = (prefix) => {
-    const country = COUNTRY_CODES.find(c => c.code === prefix);
+    const country = COUNTRY_CODES_LIST.find(c => c.code === prefix);
     return country ? country.country : prefix;
+  };
+  
+  // فتح مربع حوار اختيار الموقع
+  const openPlacesModal = () => {
+    if (editMode) {
+      // نسخ العنوان الحالي إلى الحالة المؤقتة
+      setTempAddress(shopData.address);
+      setShowPlacesModal(true);
+    }
+  };
+  
+  // تحديد الموقع
+  const selectLocation = (address) => {
+    setShopData(prev => ({...prev, address}));
+    setShowPlacesModal(false);
+  };
+  
+  // تحميل صورة البانر
+  const uploadBannerImage = async () => {
+    try {
+      // عرض خيارات اختيار الصورة
+      Alert.alert(
+        'إضافة صورة غلاف',
+        'اختر مصدر الصورة',
+        [
+          { text: 'إلغاء', style: 'cancel' },
+          { 
+            text: 'معرض الصور', 
+            onPress: async () => {
+              const imageUri = await pickImage();
+              if (imageUri) {
+                uploadAndSaveBannerImage(imageUri);
+              }
+            } 
+          },
+          { 
+            text: 'الكاميرا', 
+            onPress: async () => {
+              const imageUri = await takePicture();
+              if (imageUri) {
+                uploadAndSaveBannerImage(imageUri);
+              }
+            } 
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('خطأ في تحميل صورة الغلاف:', error);
+      Alert.alert('خطأ', 'حدث خطأ أثناء تحميل الصورة');
+    }
+  };
+
+  // رفع وحفظ صورة البانر
+  const uploadAndSaveBannerImage = async (imageUri) => {
+    try {
+      setLoading(true);
+      
+      // رفع الصورة إلى Cloudinary
+      const cloudinaryUrl = await uploadToCloudinary(imageUri, 'yazcar/banners');
+      
+      if (!cloudinaryUrl) {
+        throw new Error('فشل في تحميل الصورة');
+      }
+      
+      // تحديث البيانات محلياً
+      setShopData(prevData => ({
+        ...prevData,
+        banner_image: cloudinaryUrl
+      }));
+      
+      // حفظ رابط الصورة في قاعدة البيانات
+      const { error } = await supabase
+        .from('shops')
+        .update({ banner_image: cloudinaryUrl })
+        .eq('id', shopData.id);
+      
+      if (error) {
+        throw error;
+      }
+      
+      Alert.alert('تم', 'تم تحميل صورة الغلاف بنجاح');
+    } catch (error) {
+      console.error('خطأ في حفظ صورة الغلاف:', error);
+      Alert.alert('خطأ', 'حدث خطأ أثناء حفظ الصورة');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // تحميل صورة الملف الشخصي
+  const uploadProfileImage = async () => {
+    try {
+      // عرض خيارات اختيار الصورة
+      Alert.alert(
+        'تغيير صورة المحل',
+        'اختر مصدر الصورة',
+        [
+          { text: 'إلغاء', style: 'cancel' },
+          { 
+            text: 'معرض الصور', 
+            onPress: async () => {
+              const imageUri = await pickImage();
+              if (imageUri) {
+                uploadAndSaveProfileImage(imageUri);
+              }
+            } 
+          },
+          { 
+            text: 'الكاميرا', 
+            onPress: async () => {
+              const imageUri = await takePicture();
+              if (imageUri) {
+                uploadAndSaveProfileImage(imageUri);
+              }
+            } 
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('خطأ في تحميل صورة المحل:', error);
+      Alert.alert('خطأ', 'حدث خطأ أثناء تحميل الصورة');
+    }
+  };
+
+  // رفع وحفظ صورة الملف الشخصي
+  const uploadAndSaveProfileImage = async (imageUri) => {
+    try {
+      setLoading(true);
+      
+      // رفع الصورة إلى Cloudinary
+      const cloudinaryUrl = await uploadToCloudinary(imageUri, 'yazcar/profiles');
+      
+      if (!cloudinaryUrl) {
+        throw new Error('فشل في تحميل الصورة');
+      }
+      
+      // تحديث البيانات محلياً
+      setShopData(prevData => ({
+        ...prevData,
+        logo_url: cloudinaryUrl
+      }));
+      
+      // حفظ رابط الصورة في قاعدة البيانات
+      const { error } = await supabase
+        .from('shops')
+        .update({ logo_url: cloudinaryUrl })
+        .eq('id', shopData.id);
+      
+      if (error) {
+        throw error;
+      }
+      
+      Alert.alert('تم', 'تم تحديث صورة المحل بنجاح');
+    } catch (error) {
+      console.error('خطأ في حفظ صورة المحل:', error);
+      Alert.alert('خطأ', 'حدث خطأ أثناء حفظ الصورة');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // إنشاء QR
+  const generateQRCode = () => {
+    Alert.alert('إنشاء QR', 'سيتم توفير رمز QR خاص بالمحل قريباً');
+  };
+
+  // مشاركة الملف الشخصي
+  const handleShareProfile = () => {
+    const url = `https://yazcar.xyz/shop/${shopData.id}`;
+    Linking.canOpenURL(url)
+      .then(() => {
+        Alert.alert(
+          'مشاركة الملف الشخصي',
+          'اختر طريقة المشاركة',
+          [
+            { text: 'نسخ الرابط', onPress: () => Alert.alert('تم', 'تم نسخ الرابط') },
+            { text: 'واتساب', onPress: () => Alert.alert('واتساب', 'جاري فتح واتساب للمشاركة') },
+            { text: 'المزيد...', onPress: () => Alert.alert('مشاركة', 'جاري فتح خيارات المشاركة') },
+            { text: 'إلغاء', style: 'cancel' },
+          ]
+        );
+      })
+      .catch(err => console.error('خطأ في المشاركة:', err));
+  };
+  
+  // الحصول على موقع المستخدم الحالي
+  const getCurrentLocation = async () => {
+    if (!editMode) return;
+    
+    setLocationLoading(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('تنبيه', 'لم يتم منح إذن الوصول للموقع');
+        setLocationLoading(false);
+        return;
+      }
+      
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Highest,
+        timeout: 15000
+      });
+      
+      const { latitude, longitude } = location.coords;
+      
+      // تحديث بيانات الإحداثيات
+      setShopData(prevData => ({
+        ...prevData,
+        coordinates: { latitude, longitude }
+      }));
+      
+      // محاولة الحصول على العنوان من الإحداثيات
+      try {
+        const [address] = await Location.reverseGeocodeAsync({
+          latitude,
+          longitude
+        });
+        
+        if (address) {
+          const formattedAddress = [
+            address.name,
+            address.street,
+            address.district,
+            address.city,
+            address.region,
+            address.country
+          ].filter(Boolean).join(', ');
+          
+          if (formattedAddress && !shopData.address) {
+            Alert.alert(
+              'هل تريد استخدام هذا العنوان؟',
+              formattedAddress,
+              [
+                { text: 'لا', style: 'cancel' },
+                { 
+                  text: 'نعم', 
+                  onPress: () => setShopData(prev => ({...prev, address: formattedAddress}))
+                }
+              ]
+            );
+          }
+        }
+      } catch (error) {
+        console.error('خطأ في تحويل الإحداثيات إلى عنوان:', error);
+      }
+      
+      Alert.alert('تم', 'تم تحديد موقعك بنجاح');
+    } catch (error) {
+      console.error('خطأ في الحصول على الموقع:', error);
+      Alert.alert('خطأ', 'حدث خطأ أثناء محاولة تحديد موقعك');
+    } finally {
+      setLocationLoading(false);
+    }
+  };
+  
+  // فتح الموقع في خرائط Google
+  const openLocationInMaps = () => {
+    if (!shopData.coordinates) return;
+    
+    const { latitude, longitude } = shopData.coordinates;
+    const label = encodeURIComponent(shopData.shop_name || "موقع المتجر");
+    
+    let url;
+    if (Platform.OS === 'ios') {
+      // تنسيق Apple Maps للأيفون
+      url = `maps:?ll=${latitude},${longitude}&q=${label}`;
+    } else if (Platform.OS === 'android') {
+      // تنسيق خرائط جوجل للأندرويد
+      url = `geo:${latitude},${longitude}?q=${latitude},${longitude}(${label})`;
+    } else {
+      // للويب استخدم جوجل ماب
+      url = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+    }
+    
+    console.log("فتح URL الخرائط:", url);
+    
+    Linking.canOpenURL(url)
+      .then(supported => {
+        if (supported) {
+          return Linking.openURL(url);
+        } else {
+          // إذا فشل، جرب دائماً خرائط جوجل في المتصفح
+          const webUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
+          return Linking.openURL(webUrl);
+        }
+      })
+      .catch(err => {
+        console.error('خطأ في فتح الخرائط:', err);
+        Alert.alert('خطأ', 'لا يمكن فتح تطبيق الخرائط. تأكد من تثبيته على جهازك.');
+      });
   };
   
   if (loading) {
@@ -393,335 +724,570 @@ export default function ShopProfile() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar 
-        backgroundColor={COLORS.primary}
+        backgroundColor="#204080"
         barStyle="light-content"
         translucent={false}
       />
       
-      {/* شريط العنوان مع القائمة والعودة */}
-      <View style={styles.header}>
+      {/* شريط العنوان مع تدرج لوني */}
+      <LinearGradient
+        colors={['#6B5B95', '#4A3B74']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={styles.header}
+      >
         <TouchableOpacity 
-          style={styles.notificationIcon}
-          onPress={() => router.push('/shop/notifications')}
+          style={styles.backButton}
+          onPress={() => router.back()}
         >
-          <Icon name="bell-outline" size={28} color="#000" />
+          <Icon name="arrow-right" size={24} color="#fff" />
         </TouchableOpacity>
         
         <Text style={styles.headerTitle}>الملف الشخصي</Text>
         
         <TouchableOpacity 
-          style={styles.menuButton}
-          onPress={() => router.back()}
+          style={styles.editButton}
+          onPress={() => {
+            if (editMode) {
+              saveProfileData();
+            } else {
+              setEditMode(true);
+            }
+          }}
+          disabled={saving}
         >
-          <Icon name="arrow-right" size={28} color="#000" />
+          <Icon name={editMode ? "content-save" : "pencil"} size={22} color="#fff" />
         </TouchableOpacity>
-      </View>
+      </LinearGradient>
       
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* العنوان والترحيب */}
-        <View style={styles.welcomeSection}>
-          <View style={styles.welcomeTextContainer}>
-            <Text style={styles.welcomeText}>
-              مرحباً بك <Text style={styles.waveEmoji}>👋</Text>
-            </Text>
-            <Text style={styles.subtitleText}>في صفحة الملف الشخصي</Text>
-          </View>
-          
-          <View style={styles.profileImageOuterContainer}>
-            {profile.profile_image ? (
-              <Image 
-                source={{ uri: profile.profile_image }}
-                style={styles.userImage}
-              />
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+        {/* صورة الخلفية وشعار المحل */}
+        <View style={styles.profileHeader}>
+          {/* صورة الغلاف */}
+          <LinearGradient
+            colors={['#3B82F6', '#204080']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.coverContainer}
+          >
+            {shopData.banner_image ? (
+              <View style={{ width: '100%', height: '100%' }}>
+                <Image 
+                  source={{ uri: getBannerImageUrl(shopData.banner_image, 1200, 400) }} 
+                  style={styles.coverImage}
+                  resizeMode="cover"
+                />
+                {editMode && (
+                  <TouchableOpacity 
+                    style={styles.changeBannerBtn}
+                    onPress={uploadBannerImage}
+                  >
+                    <Icon name="camera" size={22} color="#FFF" />
+                  </TouchableOpacity>
+                )}
+              </View>
             ) : (
-              <View style={styles.shopIconContainer}>
-                <Icon name="account" size={40} color="#FFF" />
+              <View style={styles.coverPlaceholder}>
+                <TouchableOpacity
+                  style={styles.addBannerButton}
+                  onPress={uploadBannerImage}
+                >
+                  <Icon name="image-plus" size={40} color="#FFFFFF" />
+                  <Text style={styles.addBannerText}>إضافة صورة غلاف</Text>
+                </TouchableOpacity>
               </View>
             )}
+          </LinearGradient>
+          
+          <View style={styles.shopInfoContainer}>
+            <View style={styles.logoContainer}>
+              {shopData.logo_url ? (
+                <Image 
+                  source={{ uri: getProfileImageUrl(shopData.logo_url, 160) }} 
+                  style={styles.logoImage}
+                />
+              ) : (
+                <TouchableOpacity 
+                  style={styles.placeholderLogo}
+                  onPress={uploadProfileImage}
+                >
+                  <Icon name="store" size={35} color="#FFF" />
+                  {editMode && <Text style={styles.addPhotoText}>تغيير</Text>}
+                </TouchableOpacity>
+              )}
+              {editMode && shopData.logo_url && (
+                <TouchableOpacity 
+                  style={styles.changeProfileImage}
+                  onPress={uploadProfileImage}
+                >
+                  <Icon name="camera" size={18} color="#FFF" />
+                </TouchableOpacity>
+              )}
+            </View>
             
-            {editMode && (
-              <TouchableOpacity style={styles.changeImageButton}>
-                <Icon name="camera" size={18} color="#FFF" />
-              </TouchableOpacity>
-            )}
+            <View style={styles.shopNameContainer}>
+              {editMode ? (
+                <TextInput
+                  style={[styles.shopNameInput, styles.editableField, { fontSize: 20, fontWeight: 'bold' }]}
+                  value={shopData.shop_name}
+                  onChangeText={(text) => setShopData(prev => ({...prev, shop_name: text}))}
+                  placeholder="اسم المتجر"
+                  maxLength={30}
+                />
+              ) : (
+                <Text style={styles.shopName}>{shopData.shop_name || "اسم المتجر"}</Text>
+              )}
+              
+              <Text style={styles.ownerName}>{profile.name || "اسم المالك"}</Text>
+            </View>
           </View>
-        </View>
-        
-        {/* معلومات المستخدم الرئيسية */}
-        <View style={styles.userInfoContainer}>
-          {editMode ? (
-            <TextInput
-              style={styles.userNameInput}
-              value={profile.name}
-              onChangeText={(text) => setProfile({ ...profile, name: text })}
-              placeholder="الاسم"
-            />
-          ) : (
-            <Text style={styles.userNameText}>{profile.name || 'غير محدد'}</Text>
-          )}
           
-          {editMode ? (
-            <TextInput
-              style={styles.shopNameInput}
-              value={shopData.shop_name}
-              onChangeText={(text) => setShopData({ ...shopData, shop_name: text })}
-              placeholder="اسم المحل"
-            />
-          ) : (
-            <Text style={styles.userRoleText}>{shopData.shop_name || 'اسم المحل غير محدد'}</Text>
-          )}
-          
-          <TouchableOpacity 
-            style={styles.editProfileButton}
-            onPress={() => {
-              if (editMode) {
-                saveProfileData();
-              } else {
-                setEditMode(true);
-              }
-            }}
-            disabled={saving}
-          >
-            <Text style={styles.editButtonText}>
-              {editMode ? (saving ? 'جاري الحفظ...' : 'حفظ') : 'تعديل الملف الشخصي'}
-            </Text>
-            <Icon name={editMode ? "content-save" : "pencil"} size={16} color={COLORS.primary} style={{ marginLeft: 5 }} />
-          </TouchableOpacity>
+          {/* أزرار الاتصال السريع */}
+          <View style={styles.quickContactContainer}>
+            <TouchableOpacity 
+              style={styles.quickContactButton}
+              onPress={() => Linking.openURL(`tel:${shopData.phone}`)}
+            >
+              <View style={[styles.quickContactIcon, { backgroundColor: '#4CAF50' }]}>
+                <Icon name="phone" size={22} color="#FFF" />
+              </View>
+              <Text style={styles.quickContactText}>اتصال</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.quickContactButton}
+              onPress={() => Linking.openURL(`https://wa.me/${shopData.whatsapp_prefix}${shopData.whatsapp}`)}
+            >
+              <View style={[styles.quickContactIcon, { backgroundColor: '#25D366' }]}>
+                <Icon name="whatsapp" size={22} color="#FFF" />
+              </View>
+              <Text style={styles.quickContactText}>واتساب</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.quickContactButton}
+              onPress={() => shopData.instagram && Linking.openURL(`https://instagram.com/${shopData.instagram}`)}
+            >
+              <View style={[styles.quickContactIcon, { backgroundColor: '#E1306C' }]}>
+                <Icon name="instagram" size={22} color="#FFF" />
+              </View>
+              <Text style={styles.quickContactText}>انستغرام</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.quickContactButton}
+              onPress={() => shopData.tiktok && Linking.openURL(`https://tiktok.com/@${shopData.tiktok}`)}
+            >
+              <View style={[styles.quickContactIcon, { backgroundColor: '#000000' }]}>
+                <TikTokIcon size={22} color="#FFF" />
+              </View>
+              <Text style={styles.quickContactText}>تيك توك</Text>
+            </TouchableOpacity>
+          </View>
         </View>
         
         {/* إحصائيات المحل */}
-        <View style={styles.statsSection}>
-          <Text style={styles.sectionTitle}>إحصائيات المحل</Text>
-          
-          <View style={styles.statCardsContainer}>
-            <LinearGradient
-              colors={['#2196F3', '#2196F3CC']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 0}}
-              style={styles.statGradientCard}
-            >
-              <View style={styles.statCardContent}>
-                <View style={styles.statInfo}>
-                  <Text style={styles.statTitle}>السيارات</Text>
-                  <Text style={styles.statCount}>{stats.carsCount}</Text>
-                </View>
-                <View style={styles.statIconContainer}>
-                  <Icon name="car" size={32} color="#FFFFFF" />
-                </View>
+        <View style={styles.statsCardContainer}>
+          <View style={styles.statsCard}>
+            <View style={styles.statItem}>
+              <View style={styles.statIconContainer}>
+                <Icon name="car" size={24} color="#3B82F6" />
               </View>
-            </LinearGradient>
+              <Text style={styles.statNumber}>{stats.carsCount}</Text>
+              <Text style={styles.statLabel}>سيارة</Text>
+            </View>
             
-            <LinearGradient
-              colors={['#FF9500', '#FF9500CC']}
-              start={{x: 0, y: 0}}
-              end={{x: 1, y: 0}}
-              style={styles.statGradientCard}
-            >
-              <View style={styles.statCardContent}>
-                <View style={styles.statInfo}>
-                  <Text style={styles.statTitle}>الخدمات</Text>
-                  <Text style={styles.statCount}>{stats.servicesCount}</Text>
-                </View>
-                <View style={styles.statIconContainer}>
-                  <Icon name="wrench" size={32} color="#FFFFFF" />
-                </View>
+            <View style={styles.statDivider} />
+            
+            <View style={styles.statItem}>
+              <View style={styles.statIconContainer}>
+                <Icon name="wrench" size={24} color="#3B82F6" />
               </View>
-            </LinearGradient>
+              <Text style={styles.statNumber}>{stats.servicesCount}</Text>
+              <Text style={styles.statLabel}>صيانة</Text>
+            </View>
           </View>
         </View>
         
-        {/* أقسام المعلومات */}
-        <View style={styles.quickActionsSection}>
+        {/* معلومات المحل */}
+        <View style={styles.sectionContainer}>
           <Text style={styles.sectionTitle}>معلومات المحل</Text>
           
-          <View style={styles.infoCard}>
-            <InfoItem 
-              icon="store"
-              label="اسم المحل"
-              value={shopData.shop_name}
-              editMode={editMode}
-              onChangeText={(text) => setShopData({ ...shopData, shop_name: text })}
-            />
+          <View style={styles.infoGrid}>
+            <View style={styles.infoCard}>
+              <Icon name="map-marker" size={24} color="#6B5B95" style={styles.infoCardIcon} />
+              <View style={styles.infoCardContent}>
+                <Text style={styles.infoCardLabel}>العنوان</Text>
+                {editMode ? (
+                  <TouchableOpacity 
+                    onPress={openPlacesModal}
+                    style={[styles.locationPickerButton, styles.editableField]}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end'}}>
+                      <View style={styles.locationPickerIcon}>
+                        <Icon name="map-marker-plus" size={18} color="#6B5B95" />
+                      </View>
+                      <Text style={{flex: 1, textAlign: 'right', color: shopData.address ? '#333' : '#999', fontSize: 14, marginRight: 8}}>
+                        {shopData.address || "اضغط لتحديد عنوان المحل"}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={styles.infoCardText}>{shopData.address || "لم يتم تحديد العنوان"}</Text>
+                )}
+              </View>
+            </View>
             
-            <InfoItem 
-              icon="map-marker"
-              label="الموقع"
-              value={shopData.location}
-              editMode={editMode}
-              onChangeText={(text) => setShopData({ ...shopData, location: text })}
-              onIconPress={openMaps}
-            />
+            <View style={styles.infoCard}>
+              <Icon name="crosshairs-gps" size={24} color="#6B5B95" style={styles.infoCardIcon} />
+              <View style={styles.infoCardContent}>
+                <Text style={styles.infoCardLabel}>الإحداثيات</Text>
+                {editMode ? (
+                  <TouchableOpacity 
+                    onPress={getCurrentLocation}
+                    style={[styles.locationPickerButton, styles.editableField]}
+                    activeOpacity={0.7}
+                    disabled={locationLoading}
+                  >
+                    <View style={{flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end'}}>
+                      {locationLoading ? (
+                        <ActivityIndicator size="small" color="#6B5B95" style={{marginLeft: 10}} />
+                      ) : (
+                        <View style={styles.locationPickerIcon}>
+                          <Icon name="crosshairs-gps" size={18} color="#6B5B95" />
+                        </View>
+                      )}
+                      <Text style={{flex: 1, textAlign: 'right', color: shopData.coordinates ? '#333' : '#999', fontSize: 14, marginRight: 8}}>
+                        {shopData.coordinates 
+                          ? `${shopData.coordinates.latitude.toFixed(6)}, ${shopData.coordinates.longitude.toFixed(6)}` 
+                          : "اضغط لتحديد موقعك الحالي"}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity 
+                    onPress={shopData.coordinates ? openLocationInMaps : undefined}
+                    style={{opacity: shopData.coordinates ? 1 : 0.5}}
+                  >
+                    <Text style={[
+                      styles.infoCardText,
+                      shopData.coordinates && styles.coordinatesText
+                    ]}>
+                      {shopData.coordinates 
+                        ? `${shopData.coordinates.latitude.toFixed(6)}, ${shopData.coordinates.longitude.toFixed(6)}` 
+                        : "لم يتم تحديد الإحداثيات"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
             
-            <InfoItem 
-              icon="whatsapp"
-              label="رقم الواتساب"
-              value={shopData.whatsapp}
-              editMode={editMode}
-              onChangeText={(text) => setShopData({ ...shopData, whatsapp: text })}
-              onIconPress={openWhatsapp}
-            />
+            <View style={styles.infoCard}>
+              <Icon name="phone" size={24} color="#6B5B95" style={styles.infoCardIcon} />
+              <View style={styles.infoCardContent}>
+                <Text style={styles.infoCardLabel}>رقم الهاتف</Text>
+                {editMode ? (
+                  <TextInput
+                    style={[styles.infoInput, styles.editableField]}
+                    value={shopData.phone}
+                    onChangeText={(text) => setShopData(prev => ({...prev, phone: text}))}
+                    placeholder="رقم الهاتف"
+                    keyboardType="phone-pad"
+                  />
+                ) : (
+                  <Text style={styles.infoCardText}>{shopData.phone || "لم يتم تحديد رقم الهاتف"}</Text>
+                )}
+              </View>
+            </View>
             
-            <InfoItem 
-              icon="phone-plus"
-              label="بادئة الواتساب"
-              value={getCountryName(shopData.whatsapp_prefix)}
-              editMode={editMode}
-              onIconPress={openPrefixPicker}
-              isButton={editMode}
-            />
+            <View style={styles.infoCard}>
+              <Icon name="whatsapp" size={24} color="#6B5B95" style={styles.infoCardIcon} />
+              <View style={styles.infoCardContent}>
+                <Text style={styles.infoCardLabel}>رقم الواتساب</Text>
+                {editMode ? (
+                  <View style={[styles.whatsappInputContainer, styles.editableField]}>
+                    <TouchableOpacity 
+                      style={styles.prefixButton}
+                      onPress={openPrefixPicker}
+                    >
+                      <Text style={styles.prefixText}>+{shopData.whatsapp_prefix}</Text>
+                      <Icon name="chevron-down" size={16} color="#6B5B95" />
+                    </TouchableOpacity>
+                    <TextInput
+                      style={styles.whatsappInput}
+                      value={shopData.whatsapp}
+                      onChangeText={(text) => setShopData(prev => ({...prev, whatsapp: text}))}
+                      placeholder="رقم الواتساب"
+                      keyboardType="phone-pad"
+                    />
+                  </View>
+                ) : (
+                  <Text style={styles.infoCardText}>+{shopData.whatsapp_prefix} {shopData.whatsapp || "لم يتم تحديد رقم الواتساب"}</Text>
+                )}
+              </View>
+            </View>
             
-            <InfoItem 
-              icon="clock-outline"
-              label="ساعات العمل"
-              value={shopData.working_hours}
-              editMode={editMode}
-              onChangeText={(text) => setShopData({ ...shopData, working_hours: text })}
-            />
+            <View style={styles.infoCard}>
+              <Icon name="calendar-range" size={24} color="#6B5B95" style={styles.infoCardIcon} />
+              <View style={styles.infoCardContent}>
+                <Text style={styles.infoCardLabel}>أيام العمل</Text>
+                {editMode ? (
+                  <TextInput
+                    style={[styles.infoInput, styles.editableField]}
+                    value={shopData.working_days}
+                    onChangeText={(text) => setShopData(prev => ({...prev, working_days: text}))}
+                    placeholder="أيام العمل"
+                  />
+                ) : (
+                  <Text style={styles.infoCardText}>{shopData.working_days || "لم يتم تحديد أيام العمل"}</Text>
+                )}
+              </View>
+            </View>
+            
+            <View style={styles.infoCard}>
+              <Icon name="clock-outline" size={24} color="#6B5B95" style={styles.infoCardIcon} />
+              <View style={styles.infoCardContent}>
+                <Text style={styles.infoCardLabel}>ساعات العمل</Text>
+                {editMode ? (
+                  <TextInput
+                    style={[styles.infoInput, styles.editableField]}
+                    value={shopData.working_hours}
+                    onChangeText={(text) => setShopData(prev => ({...prev, working_hours: text}))}
+                    placeholder="ساعات العمل"
+                  />
+                ) : (
+                  <Text style={styles.infoCardText}>{shopData.working_hours || "لم يتم تحديد ساعات العمل"}</Text>
+                )}
+              </View>
+            </View>
           </View>
+        </View>
+        
+        {/* وصف المحل */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>وصف المحل</Text>
           
-          <Text style={[styles.sectionTitle, { marginTop: 25 }]}>وصف المحل</Text>
-          
-          <View style={styles.infoCard}>
+          <View style={styles.descriptionBox}>
             {editMode ? (
               <TextInput
-                style={styles.descriptionInput}
+                style={[styles.descriptionInput, styles.editableField]}
                 value={shopData.description}
-                onChangeText={(text) => setShopData({ ...shopData, description: text })}
-                placeholder="أدخل وصفاً للمحل..."
+                onChangeText={(text) => setShopData(prev => ({...prev, description: text}))}
+                placeholder="أدخل وصفًا للمحل..."
                 multiline
                 numberOfLines={4}
                 textAlignVertical="top"
               />
             ) : (
               <Text style={styles.descriptionText}>
-                {shopData.description || 'لا يوجد وصف للمحل'}
+                {shopData.description || "لا يوجد وصف للمحل"}
               </Text>
             )}
           </View>
+        </View>
+        
+        {/* حسابات التواصل الاجتماعي */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>حسابات التواصل الاجتماعي</Text>
           
-          <Text style={[styles.sectionTitle, { marginTop: 25 }]}>وسائل التواصل</Text>
-          
-          <View style={styles.menuGrid}>
-            <SocialMediaButton 
-              icon="instagram" 
-              title="انستغرام"
-              value={shopData.instagram}
-              onPress={() => openSocialMedia('instagram')}
-              editMode={editMode}
-              onChangeText={(text) => setShopData({ ...shopData, instagram: text })}
-              color="#E1306C"
-            />
-            
-            <SocialMediaButton 
-              icon="twitter" 
-              title="تويتر"
-              value={shopData.twitter}
-              onPress={() => openSocialMedia('twitter')}
-              editMode={editMode}
-              onChangeText={(text) => setShopData({ ...shopData, twitter: text })}
-              color="#1DA1F2"
-            />
-            
-            <SocialMediaButton 
-              icon="facebook" 
-              title="فيسبوك"
-              value={shopData.facebook}
-              onPress={() => openSocialMedia('facebook')}
-              editMode={editMode}
-              onChangeText={(text) => setShopData({ ...shopData, facebook: text })}
-              color="#4267B2"
-            />
-            
-            <SocialMediaButton 
-              icon="phone" 
-              title="هاتف"
-              value={profile.phone}
-              onPress={callNumber}
-              editMode={editMode}
-              onChangeText={(text) => setProfile({ ...profile, phone: text })}
-              color="#27AE60"
-            />
-          </View>
-          
-          <Text style={[styles.sectionTitle, { marginTop: 30 }]}>الوصول السريع</Text>
-          
-          <View style={styles.menuGrid}>
-            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/shop/cars')}>
-              <View style={[styles.menuIconContainer, { backgroundColor: '#27AE60' + '15' }]}>
-                <Icon name="car" size={24} color="#27AE60" />
+          <View style={styles.socialContainer}>
+            <View style={styles.socialInputRow}>
+              <View style={styles.socialIconContainer}>
+                <Icon name="instagram" size={22} color="#fff" style={styles.socialIcon} />
               </View>
-              <Text style={styles.menuItemText}>السيارات</Text>
-            </TouchableOpacity>
+              {editMode ? (
+                <View style={styles.socialInputContainer}>
+                  <Text style={styles.socialInputPrefix}>instagram.com/</Text>
+                  <TextInput
+                    style={[styles.socialInput, styles.editableField]}
+                    value={shopData.instagram}
+                    onChangeText={(text) => setShopData(prev => ({...prev, instagram: text}))}
+                    placeholder="اسم المستخدم"
+                  />
+                </View>
+              ) : (
+                <Text style={styles.socialText}>
+                  {shopData.instagram ? `@${shopData.instagram}` : "غير محدد"}
+                </Text>
+              )}
+            </View>
             
-            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/shop/service-history')}>
-              <View style={[styles.menuIconContainer, { backgroundColor: '#3498DB' + '15' }]}>
-                <Icon name="history" size={24} color="#3498DB" />
+            <View style={styles.socialInputRow}>
+              <View style={[styles.socialIconContainer, {backgroundColor: '#1DA1F2'}]}>
+                <Icon name="twitter" size={22} color="#fff" style={styles.socialIcon} />
               </View>
-              <Text style={styles.menuItemText}>سجل الخدمات</Text>
-            </TouchableOpacity>
+              {editMode ? (
+                <View style={styles.socialInputContainer}>
+                  <Text style={styles.socialInputPrefix}>twitter.com/</Text>
+                  <TextInput
+                    style={[styles.socialInput, styles.editableField]}
+                    value={shopData.twitter}
+                    onChangeText={(text) => setShopData(prev => ({...prev, twitter: text}))}
+                    placeholder="اسم المستخدم"
+                  />
+                </View>
+              ) : (
+                <Text style={styles.socialText}>
+                  {shopData.twitter ? `@${shopData.twitter}` : "غير محدد"}
+                </Text>
+              )}
+            </View>
             
-            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/shop/scan')}>
-              <View style={[styles.menuIconContainer, { backgroundColor: '#9B59B6' + '15' }]}>
-                <Icon name="qrcode-scan" size={24} color="#9B59B6" />
+            <View style={styles.socialInputRow}>
+              <View style={[styles.socialIconContainer, {backgroundColor: '#4267B2'}]}>
+                <Icon name="facebook" size={22} color="#fff" style={styles.socialIcon} />
               </View>
-              <Text style={styles.menuItemText}>مسح QR</Text>
-            </TouchableOpacity>
+              {editMode ? (
+                <View style={styles.socialInputContainer}>
+                  <Text style={styles.socialInputPrefix}>facebook.com/</Text>
+                  <TextInput
+                    style={[styles.socialInput, styles.editableField]}
+                    value={shopData.facebook}
+                    onChangeText={(text) => setShopData(prev => ({...prev, facebook: text}))}
+                    placeholder="اسم المستخدم"
+                  />
+                </View>
+              ) : (
+                <Text style={styles.socialText}>
+                  {shopData.facebook ? `@${shopData.facebook}` : "غير محدد"}
+                </Text>
+              )}
+            </View>
             
-            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/shop/shop-dashboard')}>
-              <View style={[styles.menuIconContainer, { backgroundColor: '#E67E22' + '15' }]}>
-                <Icon name="view-dashboard" size={24} color="#E67E22" />
+            <View style={styles.socialInputRow}>
+              <View style={[styles.socialIconContainer, {backgroundColor: '#000000'}]}>
+                <TikTokIcon size={22} color="#fff" />
               </View>
-              <Text style={styles.menuItemText}>لوحة التحكم</Text>
-            </TouchableOpacity>
+              {editMode ? (
+                <View style={styles.socialInputContainer}>
+                  <Text style={styles.socialInputPrefix}>tiktok.com/@</Text>
+                  <TextInput
+                    style={[styles.socialInput, styles.editableField]}
+                    value={shopData.tiktok}
+                    onChangeText={(text) => setShopData(prev => ({...prev, tiktok: text}))}
+                    placeholder="اسم المستخدم"
+                  />
+                </View>
+              ) : (
+                <Text style={styles.socialText}>
+                  {shopData.tiktok ? `@${shopData.tiktok}` : "غير محدد"}
+                </Text>
+              )}
+            </View>
           </View>
         </View>
         
-        <View style={styles.emptySection} />
+        {/* مساحة لتسهيل التمرير */}
+        <View style={styles.bottomPadding} />
       </ScrollView>
       
-      {/* منتقي بادئة الواتساب */}
+      {/* منتقي بادئة الدولة */}
       <Modal
         visible={showPrefixPicker}
         transparent={true}
-        animationType="slide"
         onRequestClose={() => setShowPrefixPicker(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.prefixPickerContainer}>
-            <View style={styles.prefixPickerHeader}>
-              <Text style={styles.prefixPickerTitle}>اختر بادئة الدولة</Text>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>اختر بادئة الدولة</Text>
               <TouchableOpacity 
-                style={styles.closeButton}
                 onPress={() => setShowPrefixPicker(false)}
+                style={styles.closeButton}
               >
-                <Icon name="close" size={22} color="#333" />
+                <Icon name="close" size={18} color="#333" />
               </TouchableOpacity>
             </View>
             
             <FlatList
-              data={COUNTRY_CODES}
+              data={COUNTRY_CODES_LIST}
               keyExtractor={item => item.code}
               renderItem={({ item }) => (
                 <TouchableOpacity 
-                  style={[
-                    styles.prefixItem,
-                    shopData.whatsapp_prefix === item.code && styles.selectedPrefixItem
-                  ]}
+                  style={styles.countryItem}
                   onPress={() => selectPrefix(item.code)}
                 >
-                  <Text style={[
-                    styles.prefixItemText,
-                    shopData.whatsapp_prefix === item.code && styles.selectedPrefixItemText
-                  ]}>
-                    {`${item.country} (+${item.code})`}
-                  </Text>
+                  <Text style={styles.countryText}>{item.country}</Text>
                   {shopData.whatsapp_prefix === item.code && (
-                    <Icon name="check" size={20} color={COLORS.primary} />
+                    <Icon name="check" size={18} color="#3B82F6" />
                   )}
                 </TouchableOpacity>
               )}
-              style={styles.prefixList}
+              style={styles.countryList}
             />
+          </View>
+        </View>
+      </Modal>
+      
+      {/* منتقي المواقع */}
+      <Modal
+        visible={showPlacesModal}
+        transparent={true}
+        onRequestClose={() => setShowPlacesModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContainer, {height: height * 0.6, width: '90%'}]}>
+            <View style={styles.modalHeader}>
+              <TouchableOpacity 
+                onPress={() => setShowPlacesModal(false)}
+                style={styles.closeButton}
+              >
+                <Icon name="close" size={18} color="#333" />
+              </TouchableOpacity>
+              <Text style={styles.modalTitle}>أدخل عنوان المحل</Text>
+            </View>
+            
+            <View style={{padding: 16, flex: 1}}>
+              <Text style={{textAlign: 'right', marginBottom: 15, fontSize: 16}}>
+                يرجى إدخال عنوان محلك بالتفصيل:
+              </Text>
+              
+              <TextInput
+                style={{
+                  borderWidth: 1,
+                  borderColor: '#ddd',
+                  borderRadius: 8,
+                  padding: 15,
+                  textAlign: 'right',
+                  backgroundColor: '#fff',
+                  minHeight: 120,
+                  textAlignVertical: 'top',
+                  fontSize: 16
+                }}
+                placeholder="مثال: شارع الرشيد، بناية رقم 24، الطابق الأول، رام الله، فلسطين"
+                multiline={true}
+                numberOfLines={4}
+                value={tempAddress}
+                onChangeText={setTempAddress}
+              />
+              
+              <TouchableOpacity 
+                style={{
+                  backgroundColor: '#3B82F6',
+                  padding: 15,
+                  borderRadius: 8,
+                  marginTop: 20,
+                  alignItems: 'center'
+                }}
+                onPress={() => {
+                  if (tempAddress && tempAddress.trim() !== '') {
+                    selectLocation(tempAddress.trim());
+                  } else {
+                    Alert.alert("تنبيه", "الرجاء إدخال العنوان");
+                  }
+                }}
+              >
+                <Text style={{color: '#fff', fontWeight: 'bold', fontSize: 16}}>تأكيد العنوان</Text>
+              </TouchableOpacity>
+              
+              <View style={{marginTop: 20}}>
+                <Text style={{textAlign: 'right', marginBottom: 10, fontWeight: 'bold'}}>نصائح كتابة العنوان:</Text>
+                <Text style={{textAlign: 'right', marginBottom: 5, color: '#555'}}>• اذكر اسم المدينة والمنطقة بوضوح</Text>
+                <Text style={{textAlign: 'right', marginBottom: 5, color: '#555'}}>• اذكر اسم الشارع أو الحي</Text>
+                <Text style={{textAlign: 'right', marginBottom: 5, color: '#555'}}>• أضف أي معالم قريبة تساعد في تحديد الموقع</Text>
+              </View>
+            </View>
           </View>
         </View>
       </Modal>
@@ -729,510 +1295,291 @@ export default function ShopProfile() {
   );
 }
 
-// مكون عنصر التواصل الاجتماعي
-function SocialMediaButton({ icon, title, value, onPress, editMode, onChangeText, color }) {
-  return (
-    <View style={styles.socialMediaItem}>
-      {editMode ? (
-        <View style={styles.socialMediaEditContainer}>
-          <View style={[styles.socialMediaIcon, { backgroundColor: color + '15' }]}>
-            <Icon name={icon} size={22} color={color} />
-          </View>
-          <Text style={styles.socialMediaTitle}>{title}</Text>
-          <TextInput
-            style={styles.socialMediaInput}
-            value={value}
-            onChangeText={onChangeText}
-            placeholder={`${title}...`}
-          />
-        </View>
-      ) : (
-        <TouchableOpacity 
-          style={styles.socialMediaButton}
-          onPress={onPress}
-          disabled={!value}
-        >
-          <View style={[styles.socialMediaIcon, { backgroundColor: color + '15' }]}>
-            <Icon name={icon} size={22} color={color} />
-          </View>
-          <Text style={styles.socialMediaTitle}>{title}</Text>
-          <Text style={styles.socialMediaValue} numberOfLines={1} ellipsizeMode="tail">
-            {value || 'غير محدد'}
-          </Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-}
-
-// مكون لعرض عنصر معلومات
-function InfoItem({ icon, label, value, editMode, onChangeText, onIconPress, multiline = false, keyboardType = 'default', helperText, isButton = false }) {
-  return (
-    <View style={styles.infoItem}>
-      <View style={styles.infoContent}>
-        <View style={styles.labelContainer}>
-          <Text style={styles.infoLabel}>{label}</Text>
-        </View>
-        
-        {editMode && !isButton ? (
-          <View>
-            <TextInput
-              style={[
-                styles.infoInput, 
-                multiline && { height: 80, textAlignVertical: 'top' }
-              ]}
-              value={value}
-              onChangeText={onChangeText}
-              placeholder={`أدخل ${label}`}
-              multiline={multiline}
-              numberOfLines={multiline ? 3 : 1}
-              keyboardType={keyboardType}
-            />
-            {helperText && (
-              <Text style={styles.helperText}>{helperText}</Text>
-            )}
-          </View>
-        ) : isButton ? (
-          <TouchableOpacity 
-            style={styles.pickerButton}
-            onPress={onIconPress}
-          >
-            <Text style={styles.pickerButtonText}>{value || 'اختر'}</Text>
-            <Icon name="chevron-down" size={18} color={COLORS.primary} />
-          </TouchableOpacity>
-        ) : (
-          <Text style={styles.infoValue}>{value || 'غير محدد'}</Text>
-        )}
-      </View>
-      
-      <TouchableOpacity 
-        style={[
-          styles.infoIcon, 
-          { backgroundColor: COLORS.primary + '20' }
-        ]}
-        onPress={onIconPress}
-        disabled={(editMode && !isButton) || !onIconPress}
-      >
-        <Icon name={icon} size={20} color={COLORS.primary} />
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f8f9fa',
   },
   header: {
+    paddingVertical: 16,
+    paddingHorizontal: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: '#FFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  menuButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  notificationIcon: {
-    position: 'relative',
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
-  scrollView: {
+  backButton: {
+    padding: 8,
+  },
+  editButton: {
+    padding: 8,
+  },
+  container: {
     flex: 1,
+  },
+  profileHeader: {
     backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+    marginBottom: 16,
   },
-  welcomeSection: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  coverContainer: {
+    height: 160,
+    width: '100%',
+    overflow: 'hidden',
+  },
+  coverImage: {
+    width: '100%',
+    height: '100%',
+  },
+  coverPlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 30,
-    backgroundColor: '#FFF',
   },
-  welcomeTextContainer: {
-    flex: 1,
+  addBannerButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  welcomeText: {
+  addBannerText: {
+    color: '#FFFFFF',
+    marginTop: 10,
     fontSize: 16,
-    fontWeight: '400',
-    color: '#555',
-    textAlign: 'right',
+    fontWeight: 'bold',
   },
-  waveEmoji: {
-    fontSize: 18,
+  shopInfoContainer: {
+    flexDirection: 'row',
+    padding: 15,
+    alignItems: 'center',
   },
-  subtitleText: {
-    fontSize: 14,
-    color: '#777',
-    marginTop: 5,
-    textAlign: 'right',
+  logoContainer: {
+    marginRight: 15,
   },
-  userImage: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+  logoImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     borderWidth: 3,
     borderColor: '#fff',
+    marginTop: -30,
   },
-  profileImageOuterContainer: {
-    position: 'relative',
-  },
-  shopIconContainer: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: '#3498db',
+  placeholderLogo: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#3B82F6',
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: 15,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 3,
-  },
-  changeImageButton: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: COLORS.primary,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
+    borderWidth: 3,
     borderColor: '#fff',
+    marginTop: -30,
   },
-  userInfoContainer: {
-    paddingHorizontal: 20,
-    marginTop: -15,
-    marginBottom: 20,
-  },
-  userNameText: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'right',
-  },
-  userNameInput: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'right',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ddd',
-    paddingBottom: 5,
-  },
-  userRoleText: {
-    fontSize: 16,
-    color: '#777',
-    textAlign: 'right',
-    marginTop: 5,
-  },
-  shopNameInput: {
-    fontSize: 16,
-    color: '#777',
-    textAlign: 'right',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ddd',
-    paddingBottom: 3,
-    marginTop: 5,
-  },
-  editProfileButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f5f5f5',
-    padding: 10,
-    borderRadius: 8,
-    marginTop: 15,
-  },
-  editButtonText: {
-    color: COLORS.primary,
-    fontWeight: 'bold',
-  },
-  statsSection: {
-    paddingHorizontal: 20,
-    marginBottom: 25,
-  },
-  statCardsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 10,
-  },
-  statGradientCard: {
-    width: '48%',
-    borderRadius: 15,
-    padding: 15,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 3,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-    elevation: 6,
-  },
-  statCardContent: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  statInfo: {
+  shopNameContainer: {
     flex: 1,
   },
-  statTitle: {
-    fontSize: 14,
+  shopName: {
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#FFFFFF',
-    marginBottom: 5,
+    color: '#333',
     textAlign: 'right',
   },
-  statCount: {
-    fontSize: 28,
+  shopNameInput: {
+    fontSize: 20,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: '#333',
     textAlign: 'right',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+    paddingVertical: 5,
+  },
+  ownerName: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 5,
+    textAlign: 'right',
+  },
+  statsCardContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    marginTop: 5,
+  },
+  statsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
   },
   statIconContainer: {
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: '#EFF6FF',
     justifyContent: 'center',
     alignItems: 'center',
+    marginBottom: 10,
   },
-  quickActionsSection: {
-    padding: 20,
-    paddingTop: 0,
+  statNumber: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 13,
+    color: '#666',
+  },
+  statDivider: {
+    width: 1,
+    height: '80%',
+    backgroundColor: '#EEEEEE',
+    alignSelf: 'center',
+  },
+  sectionContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   sectionTitle: {
-    fontSize: 19,
+    fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 15,
+    marginBottom: 12,
     color: '#333',
     textAlign: 'right',
+  },
+  infoGrid: {
+    marginTop: 5,
   },
   infoCard: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 3,
-  },
-  infoItem: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 15,
-    paddingBottom: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  infoIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 15,
-  },
-  infoContent: {
-    flex: 1,
-  },
-  labelContainer: {
-    marginBottom: 5,
-  },
-  infoLabel: {
-    fontSize: 14,
-    color: '#777',
-    textAlign: 'right',
-  },
-  infoValue: {
-    fontSize: 16,
-    color: '#333',
-    textAlign: 'right',
-  },
-  infoInput: {
-    fontSize: 16,
-    color: '#333',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 8,
-    textAlign: 'right',
-  },
-  helperText: {
-    fontSize: 12,
-    color: '#777',
-    marginTop: 4,
-    textAlign: 'right',
-  },
-  descriptionInput: {
-    fontSize: 16,
-    color: '#333',
-    borderWidth: 1,
-    borderColor: '#ddd',
+    backgroundColor: '#f8f9fa',
     borderRadius: 8,
     padding: 12,
-    textAlign: 'right',
-    minHeight: 100,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  descriptionText: {
-    fontSize: 16,
-    color: '#333',
-    lineHeight: 24,
-    textAlign: 'right',
+  infoCardIcon: {
+    marginLeft: 12,
+    alignSelf: 'center',
   },
-  menuGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
+  infoCardContent: {
+    flex: 1,
+    alignItems: 'flex-end',
   },
-  menuItem: {
-    width: '48%',
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 15,
-    marginBottom: 15,
-    alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 2,
+  infoCardLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 3,
   },
-  menuIconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  menuItemText: {
+  infoCardText: {
     fontSize: 14,
     color: '#333',
     fontWeight: '500',
   },
-  socialMediaItem: {
-    width: '48%',
-    marginBottom: 15,
+  descriptionBox: {
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 12,
   },
-  socialMediaButton: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 15,
+  descriptionText: {
+    fontSize: 15,
+    color: '#333',
+    textAlign: 'right',
+    lineHeight: 22,
+  },
+  descriptionInput: {
+    fontSize: 15,
+    color: '#333',
+    textAlign: 'right',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 6,
+    padding: 10,
+    textAlignVertical: 'top',
+    minHeight: 80,
+  },
+  socialLinksContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginVertical: 10,
+  },
+  socialButton: {
+    flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 2,
-    height: 120,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 25,
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  socialMediaEditContainer: {
-    backgroundColor: '#FFF',
-    borderRadius: 16,
+  socialButtonText: {
+    color: 'white',
+    marginLeft: 8,
+    fontWeight: 'bold',
+  },
+  toolsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginTop: 5,
+  },
+  toolButton: {
+    width: '48%',
+    backgroundColor: '#f8f9fa',
+    borderRadius: 10,
     padding: 15,
     alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 2,
-    minHeight: 140,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
   },
-  socialMediaIcon: {
+  toolIconContainer: {
     width: 50,
     height: 50,
     borderRadius: 25,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
-  socialMediaTitle: {
+  toolText: {
     fontSize: 14,
-    fontWeight: 'bold',
     color: '#333',
-    marginBottom: 5,
+    fontWeight: '500',
   },
-  socialMediaValue: {
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-    maxWidth: '100%',
-  },
-  socialMediaInput: {
-    width: '100%',
-    fontSize: 12,
-    color: '#333',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 8,
-    textAlign: 'center',
-    marginTop: 5,
-  },
-  pickerButton: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 10,
-    backgroundColor: '#f9f9f9',
-  },
-  pickerButtonText: {
-    fontSize: 16,
-    color: '#333',
-    textAlign: 'right',
-  },
-  floatingNavBar: {
-    display: 'none',
-  },
-  navItem: {
-    display: 'none',
-  },
-  homeNavItem: {
-    display: 'none',
-  },
-  navItemText: {
-    display: 'none',
+  bottomPadding: {
+    height: 50,
   },
   modalOverlay: {
     flex: 1,
@@ -1240,14 +1587,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  prefixPickerContainer: {
+  modalContainer: {
     width: '90%',
     maxHeight: '70%',
     backgroundColor: '#fff',
-    borderRadius: 15,
+    borderRadius: 10,
     overflow: 'hidden',
   },
-  prefixPickerHeader: {
+  modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -1255,23 +1602,18 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  prefixPickerTitle: {
-    fontSize: 18,
+  modalTitle: {
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
   },
   closeButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f0f0f0',
+    padding: 5,
   },
-  prefixList: {
-    maxHeight: 500,
+  countryList: {
+    maxHeight: 400,
   },
-  prefixItem: {
+  countryItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -1279,18 +1621,246 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  selectedPrefixItem: {
-    backgroundColor: COLORS.primary + '10',
+  countryText: {
+    fontSize: 14,
   },
-  prefixItemText: {
-    fontSize: 16,
+  changeProfileImage: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#3B82F6',
+    borderRadius: 15,
+    width: 30,
+    height: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  changeBannerBtn: {
+    position: 'absolute',
+    bottom: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addPhotoText: {
+    color: '#fff',
+    fontSize: 12,
+    marginTop: 5,
+  },
+  quickContactContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    backgroundColor: '#fff',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  quickContactButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickContactIcon: {
+    width: 45,
+    height: 45,
+    borderRadius: 23,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  quickContactText: {
+    fontSize: 12,
+    color: '#555',
+    marginTop: 3,
+  },
+  whatsappInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    width: '100%',
+  },
+  prefixButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    marginLeft: 8,
+    backgroundColor: '#f5f5f5',
+  },
+  prefixText: {
+    fontSize: 14,
+    marginRight: 4,
     color: '#333',
   },
-  selectedPrefixItemText: {
-    color: COLORS.primary,
+  whatsappInput: {
+    flex: 1,
+    textAlign: 'right',
+    fontSize: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+    paddingVertical: 4,
+  },
+  infoInput: {
+    fontSize: 14,
+    color: '#333',
+    textAlign: 'right',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+    paddingVertical: 4,
+  },
+  socialContainer: {
+    marginTop: 10,
+  },
+  socialInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    padding: 10,
+  },
+  socialIconContainer: {
+    backgroundColor: '#E1306C',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
+  socialIcon: {
+    
+  },
+  socialInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  socialInputPrefix: {
+    fontSize: 14,
+    color: '#777',
+    marginLeft: 5,
+  },
+  socialInput: {
+    flex: 1,
+    fontSize: 14,
+    textAlign: 'right',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+    paddingVertical: 4,
+  },
+  socialText: {
+    fontSize: 14,
+    color: '#333',
+    flex: 1,
+    textAlign: 'right',
+  },
+  locationPickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    width: '100%',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+  },
+  locationPickerIcon: {
+    marginLeft: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  placesAutoCompleteContainer: {
+    flex: 1,
+  },
+  instructionsContainer: {
+    padding: 15,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  instructionsText: {
+    fontSize: 14,
+    color: '#333',
+    textAlign: 'right',
+  },
+  locationPicker: {
+    flex: 1,
+  },
+  cityButtonsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    padding: 5,
+  },
+  cityButton: {
+    width: '48%',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    marginBottom: 12,
+    backgroundColor: '#f8f9fa',
+    alignItems: 'center',
+  },
+  cityButtonText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  manualAddressContainer: {
+    marginBottom: 15,
+  },
+  manualAddressInput: {
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    height: 80,
+    backgroundColor: '#fff',
+  },
+  confirmAddressButton: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#3B82F6',
+    alignItems: 'center',
+  },
+  confirmAddressButtonText: {
+    color: '#fff',
+    fontSize: 14,
     fontWeight: 'bold',
   },
-  emptySection: {
-    height: 100,
-  }
+  editableField: {
+    backgroundColor: '#f0f8ff',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#d0e1f9',
+    minHeight: 40,
+  },
+  coordinatesText: {
+    color: '#3B82F6',
+    textDecorationLine: 'underline',
+  },
 }); 

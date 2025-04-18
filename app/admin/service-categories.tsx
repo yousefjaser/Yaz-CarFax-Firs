@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl, Alert } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl, Alert, Platform, Dimensions } from 'react-native';
 import { Text, Appbar, FAB, Card, Button, TextInput, Portal, Dialog, IconButton, HelperText } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import { useAuthStore } from '../utils/store';
@@ -33,6 +33,33 @@ export default function ServiceCategoriesScreen() {
   const [deleteDialogVisible, setDeleteDialogVisible] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  
+  // فتح الdrawer باستخدام الدالة العالمية
+  const openDrawer = () => {
+    try {
+      // منع الاستدعاءات المتكررة
+      if (global._isOpeningAdminDrawer) {
+        console.log("تم تجاهل طلب فتح القائمة - القائمة تفتح حالياً");
+        return;
+      }
+      
+      // وضع علامة أن الفتح قيد التنفيذ
+      global._isOpeningAdminDrawer = true;
+      
+      // حماية إضافية للجوال مع تأخير إزالة العلامة
+      setTimeout(() => {
+        global._isOpeningAdminDrawer = false;
+      }, Platform.OS === 'ios' ? 800 : 500);
+      
+      // نستخدم الdrawer المخصص للمشرف
+      if (global && global.openAdminDrawer) {
+        global.openAdminDrawer();
+      }
+    } catch (error) {
+      global._isOpeningAdminDrawer = false;
+      console.error('خطأ في فتح القائمة:', error);
+    }
+  };
 
   useEffect(() => {
     loadCategories();
@@ -239,6 +266,9 @@ export default function ServiceCategoriesScreen() {
   return (
     <View style={styles.container}>
       <Appbar.Header>
+        {(Platform.OS !== 'web' || Dimensions.get('window').width < 768) && (
+          <Appbar.Action icon="menu" onPress={openDrawer} />
+        )}
         <Appbar.Content title="فئات الخدمة" />
       </Appbar.Header>
       

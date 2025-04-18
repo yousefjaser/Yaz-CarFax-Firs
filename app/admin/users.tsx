@@ -1,6 +1,6 @@
 // @ts-nocheck
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Alert, ScrollView, Platform } from 'react-native';
+import { View, StyleSheet, FlatList, RefreshControl, TouchableOpacity, Alert, ScrollView, Platform, Dimensions } from 'react-native';
 import { Text, Appbar, Card, Button, Chip, TextInput, Divider, SegmentedButtons, Portal, Dialog, Modal, FAB } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import { useAuthStore } from '../utils/store';
@@ -9,7 +9,7 @@ import Loading from '../components/Loading';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 export default function UsersScreen() {
-  const { user } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -17,6 +17,31 @@ export default function UsersScreen() {
   const [userTypeFilter, setUserTypeFilter] = useState('all');
   const [userToDisable, setUserToDisable] = useState(null);
   const [dialogVisible, setDialogVisible] = useState(false);
+  
+  // دالة فتح القائمة الجانبية
+  const openDrawer = () => {
+    try {
+      // منع الاستدعاءات المتكررة
+      if (global._isOpeningAdminDrawer) {
+        return;
+      }
+      
+      // وضع علامة أن الفتح قيد التنفيذ
+      global._isOpeningAdminDrawer = true;
+      
+      setTimeout(() => {
+        global._isOpeningAdminDrawer = false;
+      }, 500);
+      
+      // نستخدم الدالة العالمية إذا كانت موجودة
+      if (global && global.openAdminDrawer) {
+        global.openAdminDrawer();
+      }
+    } catch (error) {
+      global._isOpeningAdminDrawer = false;
+      console.error('خطأ في فتح القائمة:', error);
+    }
+  };
   
   // متغيرات لإضافة مستخدم جديد
   const [showAddModal, setShowAddModal] = useState(false);
@@ -29,7 +54,7 @@ export default function UsersScreen() {
     password: '',
   });
   const [errors, setErrors] = useState({});
-
+  
   useEffect(() => {
     loadUsers();
   }, [userTypeFilter, searchQuery]);
@@ -413,13 +438,45 @@ export default function UsersScreen() {
     setShowAddModal(true);
   };
 
+  // دالة تنفيذ تسجيل الخروج
+  const handleLogout = async () => {
+    try {
+      // تأكيد مع المستخدم
+      Alert.alert(
+        "تسجيل الخروج", 
+        "هل أنت متأكد من رغبتك في تسجيل الخروج؟",
+        [
+          { text: "إلغاء", style: "cancel" },
+          { 
+            text: "تسجيل الخروج", 
+            style: "destructive",
+            onPress: async () => {
+              await logout();
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      console.error('خطأ في تسجيل الخروج:', error);
+      Alert.alert("خطأ", "حدث خطأ أثناء تسجيل الخروج");
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Appbar.Header>
+        {(Platform.OS !== 'web' || Dimensions.get('window').width < 768) && (
+          <Appbar.Action icon="menu" onPress={openDrawer} />
+        )}
         <Appbar.Content title="إدارة المستخدمين" />
+        <Appbar.Action
+          icon="plus-circle-outline"
+          onPress={handleAddUser}
+          disabled={loading}
+        />
         <Appbar.Action 
-          icon="plus" 
-          onPress={handleAddUser} 
+          icon="logout" 
+          onPress={handleLogout} 
         />
       </Appbar.Header>
       

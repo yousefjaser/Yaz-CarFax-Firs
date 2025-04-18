@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Share, Alert, Linking } from 'react-native';
+import { View, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Share, Alert, Linking, Platform } from 'react-native';
 import { Appbar, Text, Card, Searchbar, FAB, ActivityIndicator, Badge, Divider } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import { supabase } from '../config';
@@ -20,11 +20,18 @@ export default function CarsScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
   const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true); // حالة جديدة لتحميل البيانات الأولي
   const [refreshing, setRefreshing] = useState(false);
   const [cars, setCars] = useState<any[]>([]);
   const [filteredCars, setFilteredCars] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [shop, setShop] = useState<any>(null);
+  
+  // متغيرات التحميل التدريجي الجديدة
+  const [page, setPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMoreData, setHasMoreData] = useState(true);
+  const ITEMS_PER_PAGE = 10; // عدد السيارات في كل صفحة
   
   useEffect(() => {
     loadShopData();
@@ -32,12 +39,17 @@ export default function CarsScreen() {
   
   useEffect(() => {
     if (shop) {
-      loadCars();
+      // تحميل البيانات الأولية فقط (الصفحة الأولى)
+      loadCars(1, true);
     }
   }, [shop]);
   
   useEffect(() => {
-    filterCars();
+    if (searchQuery.trim() === '') {
+      setFilteredCars(cars);
+    } else {
+      filterCars();
+    }
   }, [cars, searchQuery]);
   
   const loadShopData = async () => {
@@ -57,70 +69,125 @@ export default function CarsScreen() {
     }
   };
   
-  const loadCars = async () => {
+  // دالة معدلة لتحميل السيارات مع دعم التحميل التدريجي
+  const loadCars = async (pageNumber = page, isInitial = false) => {
     if (!shop) return;
     
-    setLoading(true);
+    if (isInitial) {
+      setInitialLoading(true);
+    } else if (!isInitial && pageNumber === 1) {
+      setRefreshing(true);
+    } else {
+      setLoadingMore(true);
+    }
+    
     try {
-      const { data, error } = await supabase
+      // حساب الحدود للتحميل التدريجي
+      const from = (pageNumber - 1) * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
+      
+      // تحسين طلب البيانات عن طريق طلب المعلومات الضرورية فقط
+      const { data, error, count } = await supabase
         .from('cars_new')
         .select(`
-          *,
+          qr_id,
+          make,
+          model,
+          year,
+          color,
+          plate_number,
+          last_oil_change_date,
+          updated_at,
           customer:customer_id (
             id,
             name,
             phone
           )
-        `)
+        `, { count: 'exact' })
         .eq('shop_id', shop.id)
-        .order('updated_at', { ascending: false });
+        .order('updated_at', { ascending: false })
+        .range(from, to);
       
       if (error) throw error;
       
-      // تعيين قيم افتراضية لبيانات الخدمة
-      const carsWithFormattedData = data?.map(car => {
-        return {
-          ...car,
-          lastServiceDate: car.last_oil_change_date || null,
-          lastServiceType: 'تغيير زيت',
-          visitsCount: car.last_oil_change_date ? 1 : 0
-        };
-      });
+      // تعيين قيم افتراضية لبيانات الخدمة وتحسين الأداء
+      const carsWithFormattedData = data?.map(car => ({
+        ...car,
+        lastServiceDate: car.last_oil_change_date || null,
+        lastServiceType: 'تغيير زيت',
+        visitsCount: car.last_oil_change_date ? 1 : 0
+      }));
       
-      setCars(carsWithFormattedData || []);
-      setFilteredCars(carsWithFormattedData || []);
+      // إضافة السيارات الجديدة أو استبدال القائمة حسب رقم الصفحة
+      if (pageNumber === 1) {
+        setCars(carsWithFormattedData || []);
+      } else {
+        setCars(prev => [...prev, ...(carsWithFormattedData || [])]);
+      }
+      
+      // التحقق مما إذا كان هناك المزيد من البيانات للتحميل
+      setHasMoreData(data ? data.length === ITEMS_PER_PAGE : false);
+      
+      // تحديث رقم الصفحة الحالية
+      setPage(pageNumber);
+      
     } catch (error) {
       console.error('فشل في تحميل السيارات:', error);
     } finally {
+      if (isInitial) {
+        setInitialLoading(false);
+      } else if (!isInitial && pageNumber === 1) {
+        setRefreshing(false);
+      } else {
+        setLoadingMore(false);
+      }
       setLoading(false);
-      setRefreshing(false);
     }
   };
   
+  // تحميل المزيد من السيارات عند التمرير
+  const handleLoadMore = () => {
+    if (!loadingMore && hasMoreData) {
+      loadCars(page + 1);
+    }
+  };
+  
+  // تحسين أداء الترشيح باستخدام useMemo
   const filterCars = () => {
     if (searchQuery.trim() === '') {
-      setFilteredCars(cars);
       return;
     }
     
     const lowercasedQuery = searchQuery.toLowerCase();
     const filtered = cars.filter(
       car =>
-        car.make?.toLowerCase().includes(lowercasedQuery) ||
-        car.model?.toLowerCase().includes(lowercasedQuery) ||
-        car.year?.toString().includes(lowercasedQuery) ||
-        car.plate_number?.toLowerCase().includes(lowercasedQuery) ||
-        car.vin?.toLowerCase().includes(lowercasedQuery) ||
-        car.customer?.name?.toLowerCase().includes(lowercasedQuery) ||
-        car.customer?.phone?.includes(lowercasedQuery)
+        (car.make?.toLowerCase() || '').includes(lowercasedQuery) ||
+        (car.model?.toLowerCase() || '').includes(lowercasedQuery) ||
+        (car.year?.toString() || '').includes(lowercasedQuery) ||
+        (car.plate_number?.toLowerCase() || '').includes(lowercasedQuery) ||
+        (car.vin?.toLowerCase() || '').includes(lowercasedQuery) ||
+        (car.customer?.name?.toLowerCase() || '').includes(lowercasedQuery) ||
+        (car.customer?.phone || '').includes(lowercasedQuery)
     );
     
     setFilteredCars(filtered);
   };
   
+  // حساب الإحصائيات بطريقة أكثر كفاءة باستخدام useMemo
+  const statistics = React.useMemo(() => {
+    const carsWithService = filteredCars.filter(car => car.lastServiceDate).length;
+    const carsWithoutService = filteredCars.length - carsWithService;
+    
+    return {
+      total: filteredCars.length,
+      serviced: carsWithService,
+      needService: carsWithoutService
+    };
+  }, [filteredCars]);
+  
   const handleRefresh = () => {
     setRefreshing(true);
-    loadCars();
+    loadCars(1);
   };
   
   const handleAddCar = () => {
@@ -182,121 +249,136 @@ export default function CarsScreen() {
     }
   };
   
-  const renderItem = ({ item }: { item: any }) => (
-    <Card style={styles.carCard}>
-      <TouchableOpacity onPress={() => handleCarPress(item)}>
-        <Card.Content style={styles.cardContent}>
-          <View style={styles.carHeader}>
-            <View style={styles.carInfo}>
-              <Text style={styles.carTitle}>
-                {item.make} {item.model}
-              </Text>
-              <Text style={styles.carSubtitle}>
-                <Icon name="calendar" size={14} color={COLORS.gray} style={styles.smallIcon} />
-                {item.year || 'غير محدد'}
-                {item.color && (
-                  <>
-                    <Text style={styles.dotSeparator}>•</Text>
-                    <Icon name="palette" size={14} color={COLORS.gray} style={styles.smallIcon} />
-                    {item.color}
-                  </>
-                )}
-              </Text>
-            </View>
-            <View style={styles.badgeContainer}>
-              <Badge style={styles.badge}>{item.plate_number}</Badge>
-              {item.lastServiceDate && (
-                <View style={styles.serviceIndicator}>
-                  <Icon 
-                    name="check-circle" 
-                    size={16} 
-                    color={COLORS_EXTENDED.success} 
-                    style={styles.serviceIcon} 
-                  />
-                  <Text style={styles.serviceText}>تمت الصيانة</Text>
-                </View>
-              )}
-            </View>
-          </View>
-          
-          <Divider style={styles.divider} />
-          
-          <View style={styles.detailsContainer}>
-            <View style={styles.ownerInfo}>
-              <View style={styles.ownerNameContainer}>
-                <Icon name="account" size={16} color={COLORS.gray} style={styles.icon} />
-                <Text style={styles.ownerName}>{item.customer?.name || 'غير معروف'}</Text>
+  // استخدام React.memo للأداء الأفضل في عرض العناصر
+  const CarItem = React.memo(({ item }: { item: any }) => {
+    return (
+      <Card style={styles.carCard}>
+        <TouchableOpacity onPress={() => handleCarPress(item)}>
+          <Card.Content style={styles.cardContent}>
+            <View style={styles.carHeader}>
+              <View style={styles.carInfo}>
+                <Text style={styles.carTitle}>
+                  {item.make} {item.model}
+                </Text>
+                <Text style={styles.carSubtitle}>
+                  <Icon name="calendar" size={14} color={COLORS.gray} style={styles.smallIcon} />
+                  {item.year || 'غير محدد'}
+                  {item.color && (
+                    <>
+                      <Text style={styles.dotSeparator}>•</Text>
+                      <Icon name="palette" size={14} color={COLORS.gray} style={styles.smallIcon} />
+                      {item.color}
+                    </>
+                  )}
+                </Text>
               </View>
-              
-              {item.customer?.phone && (
-                <TouchableOpacity 
-                  style={styles.phoneButton}
-                  onPress={() => handleCallCustomer(item.customer?.phone)}
-                >
-                  <Icon name="phone" size={16} color={COLORS_EXTENDED.success} />
-                  <Text style={styles.phoneButtonText}>{item.customer?.phone}</Text>
-                </TouchableOpacity>
-              )}
+              <View style={styles.badgeContainer}>
+                <Badge style={styles.badge}>{item.plate_number}</Badge>
+                {item.lastServiceDate && (
+                  <View style={styles.serviceIndicator}>
+                    <Icon 
+                      name="check-circle" 
+                      size={16} 
+                      color={COLORS_EXTENDED.success} 
+                      style={styles.serviceIcon} 
+                    />
+                    <Text style={styles.serviceText}>تمت الصيانة</Text>
+                  </View>
+                )}
+              </View>
             </View>
             
             <Divider style={styles.divider} />
             
-            <View style={styles.serviceInfo}>
-              <View style={styles.serviceRow}>
-                <View style={styles.serviceBlock}>
-                  <Text style={styles.serviceLabel}>آخر خدمة:</Text>
-                  <Text style={styles.serviceValue}>
-                    {item.lastServiceDate ? formatDate(item.lastServiceDate) : 'لا توجد خدمات'}
-                  </Text>
+            <View style={styles.detailsContainer}>
+              <View style={styles.ownerInfo}>
+                <View style={styles.ownerNameContainer}>
+                  <Icon name="account" size={16} color={COLORS.gray} style={styles.icon} />
+                  <Text style={styles.ownerName}>{item.customer?.name || 'غير معروف'}</Text>
                 </View>
                 
-                {item.lastServiceType && (
-                  <View style={styles.serviceBlock}>
-                    <Text style={styles.serviceLabel}>نوع الخدمة:</Text>
-                    <Text style={styles.serviceValue}>{item.lastServiceType}</Text>
-                  </View>
+                {item.customer?.phone && (
+                  <TouchableOpacity 
+                    style={styles.phoneButton}
+                    onPress={() => handleCallCustomer(item.customer?.phone)}
+                  >
+                    <Icon name="phone" size={16} color={COLORS_EXTENDED.success} />
+                    <Text style={styles.phoneButtonText}>{item.customer?.phone}</Text>
+                  </TouchableOpacity>
                 )}
               </View>
               
-              <View style={styles.serviceVisitsBlock}>
-                <Icon name="history" size={16} color={COLORS.primary} style={styles.visitIcon} />
-                <Text style={styles.serviceLabel}>عدد الزيارات:</Text>
-                <Text style={styles.serviceValue}>{item.visitsCount}</Text>
+              <Divider style={styles.divider} />
+              
+              <View style={styles.serviceInfo}>
+                <View style={styles.serviceRow}>
+                  <View style={styles.serviceBlock}>
+                    <Text style={styles.serviceLabel}>آخر خدمة:</Text>
+                    <Text style={styles.serviceValue}>
+                      {item.lastServiceDate ? formatDate(item.lastServiceDate) : 'لا توجد خدمات'}
+                    </Text>
+                  </View>
+                  
+                  {item.lastServiceType && (
+                    <View style={styles.serviceBlock}>
+                      <Text style={styles.serviceLabel}>نوع الخدمة:</Text>
+                      <Text style={styles.serviceValue}>{item.lastServiceType}</Text>
+                    </View>
+                  )}
+                </View>
+                
+                <View style={styles.serviceVisitsBlock}>
+                  <Icon name="history" size={16} color={COLORS.primary} style={styles.visitIcon} />
+                  <Text style={styles.serviceLabel}>عدد الزيارات:</Text>
+                  <Text style={styles.serviceValue}>{item.visitsCount}</Text>
+                </View>
               </View>
             </View>
-          </View>
-          
-          <Divider style={styles.divider} />
-          
-          <View style={styles.cardFooter}>
-            <TouchableOpacity 
-              style={styles.actionButton}
-              onPress={() => handleCarPress(item)}
-            >
-              <Icon name="qrcode-scan" size={18} color={COLORS.primary} />
-              <Text style={styles.actionText}>عرض التفاصيل</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.actionButton}
-              onPress={() => handleShareCar(item)}
-            >
-              <Icon name="share-variant" size={18} color={COLORS.primary} />
-              <Text style={styles.actionText}>مشاركة</Text>
-            </TouchableOpacity>
             
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => router.push(`/shop/add-service-visit?carId=${item.qr_id}`)}
-            >
-              <Icon name="wrench" size={18} color={COLORS.primary} />
-              <Text style={styles.actionText}>خدمة جديدة</Text>
-            </TouchableOpacity>
-          </View>
-        </Card.Content>
-      </TouchableOpacity>
-    </Card>
-  );
+            <Divider style={styles.divider} />
+            
+            <View style={styles.cardFooter}>
+              <TouchableOpacity 
+                style={styles.actionButton}
+                onPress={() => handleCarPress(item)}
+              >
+                <Icon name="qrcode-scan" size={18} color={COLORS.primary} />
+                <Text style={styles.actionText}>عرض التفاصيل</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.actionButton}
+                onPress={() => handleShareCar(item)}
+              >
+                <Icon name="share-variant" size={18} color={COLORS.primary} />
+                <Text style={styles.actionText}>مشاركة</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => router.push(`/shop/add-service-visit?carId=${item.qr_id}`)}
+              >
+                <Icon name="wrench" size={18} color={COLORS.primary} />
+                <Text style={styles.actionText}>خدمة جديدة</Text>
+              </TouchableOpacity>
+            </View>
+          </Card.Content>
+        </TouchableOpacity>
+      </Card>
+    );
+  });
+  
+  // مكون عرض مؤشر التحميل في نهاية القائمة
+  const renderFooter = () => {
+    if (!loadingMore) return null;
+    
+    return (
+      <View style={styles.footerLoader}>
+        <ActivityIndicator size="small" color={COLORS.primary} />
+        <Text style={styles.loadingMoreText}>جاري تحميل المزيد من السيارات...</Text>
+      </View>
+    );
+  };
   
   const EmptyList = () => (
     <View style={styles.emptyContainer}>
@@ -305,7 +387,8 @@ export default function CarsScreen() {
     </View>
   );
   
-  if (loading && !refreshing) {
+  // شاشة التحميل الأولية فقط تظهر في المرة الأولى
+  if (initialLoading) {
     return <Loading fullScreen message="جاري تحميل السيارات..." />;
   }
   
@@ -361,21 +444,17 @@ export default function CarsScreen() {
       
       <View style={styles.statsContainer}>
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>{filteredCars.length}</Text>
+          <Text style={styles.statNumber}>{statistics.total}</Text>
           <Text style={styles.statLabel}>إجمالي السيارات</Text>
         </View>
         
         <View style={[styles.statCard, { marginHorizontal: SPACING.md }]}>
-          <Text style={styles.statNumber}>
-            {filteredCars.filter(car => car.lastServiceDate).length}
-          </Text>
+          <Text style={styles.statNumber}>{statistics.serviced}</Text>
           <Text style={styles.statLabel}>تمت صيانتها</Text>
         </View>
         
         <View style={styles.statCard}>
-          <Text style={styles.statNumber}>
-            {filteredCars.filter(car => !car.lastServiceDate).length}
-          </Text>
+          <Text style={styles.statNumber}>{statistics.needService}</Text>
           <Text style={styles.statLabel}>بحاجة للصيانة</Text>
         </View>
       </View>
@@ -386,17 +465,27 @@ export default function CarsScreen() {
         value={searchQuery}
         style={styles.searchBar}
         iconColor={COLORS.primary}
+        placeholderTextColor="#777"
+        inputStyle={{ color: '#333', textAlign: 'right', paddingHorizontal: 15 }}
+        theme={{ colors: { text: '#333', primary: COLORS.primary } }}
       />
       
       <FlatList
         data={filteredCars}
-        renderItem={renderItem}
+        renderItem={({ item }) => <CarItem item={item} />}
         keyExtractor={(item) => item.qr_id.toString()}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
         }
         ListEmptyComponent={EmptyList}
+        ListFooterComponent={renderFooter}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.3}
+        maxToRenderPerBatch={5}
+        windowSize={10}
+        removeClippedSubviews={Platform.OS !== 'web'}
+        initialNumToRender={ITEMS_PER_PAGE}
       />
       
       <FAB
@@ -424,21 +513,41 @@ const styles = StyleSheet.create({
   },
   searchBar: {
     margin: SPACING.md,
-    elevation: 2,
     borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    paddingHorizontal: 10,
+    ...(Platform.OS === 'web' ? {
+      boxShadow: '0px 1px 3px rgba(0, 0, 0, 0.1)',
+      border: '1px solid #eaeaea',
+    } : {})
   },
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     padding: SPACING.md,
+    backgroundColor: '#f5f7fa',
+    marginBottom: 5,
   },
   statCard: {
     flex: 1,
     padding: SPACING.md,
-    backgroundColor: COLORS.white,
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
-    elevation: 2,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#eaeaea',
+    elevation: 0,
+    shadowOpacity: 0,
+    ...(Platform.OS === 'web' ? {
+      boxShadow: 'none',
+    } : {})
   },
   statNumber: {
     fontSize: 22,
@@ -460,9 +569,22 @@ const styles = StyleSheet.create({
     elevation: 3,
     borderRadius: 12,
     overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    ...(Platform.OS === 'web' ? {
+      boxShadow: '0px 2px 8px rgba(0, 0, 0, 0.1)',
+      border: '1px solid #eaeaea',
+    } : {})
   },
   cardContent: {
     padding: SPACING.md,
+    backgroundColor: '#FFFFFF',
   },
   carHeader: {
     flexDirection: 'row',
@@ -621,5 +743,17 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: COLORS.primary,
+  },
+  // أنماط جديدة للتحميل التدريجي
+  footerLoader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SPACING.md,
+  },
+  loadingMoreText: {
+    marginLeft: 10,
+    color: COLORS.gray,
+    fontSize: 14,
   },
 }); 

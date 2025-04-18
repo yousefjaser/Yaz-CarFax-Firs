@@ -163,15 +163,32 @@ export default function LoginScreen() {
       return;
     }
 
-    if (loading) return;
+    if (loading) {
+      console.log('عملية تسجيل الدخول قيد التنفيذ بالفعل، تم تجاهل الطلب المكرر');
+      return;
+    }
     
+    // تعيين حالة التحميل فوراً لمنع النقرات المتعددة
     setLoading(true);
     setError('');
 
     try {
-      const { data, error: loginError } = await signIn(email, password, rememberMe);
+      // تسجيل معلومات تسجيل الدخول
+      console.log(`محاولة تسجيل الدخول ${Platform.OS === 'web' ? 'على الويب' : 'على الجوال'} مع تذكرني: ${rememberMe}`);
+      
+      // استخدام Promise.race مع timeout لتجنب الانتظار الطويل
+      const loginPromise = signIn(email, password, rememberMe);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('انتهت مهلة تسجيل الدخول')), 15000)
+      );
+      
+      const { data, error: loginError } = await Promise.race([
+        loginPromise,
+        timeoutPromise
+      ]) as any;
       
       if (loginError) {
+        console.error('خطأ في تسجيل الدخول:', loginError);
         setError(typeof loginError === 'object' && loginError !== null && 'message' in loginError 
           ? String(loginError.message) 
           : 'فشل تسجيل الدخول');
@@ -181,23 +198,69 @@ export default function LoginScreen() {
 
       // نجاح تسجيل الدخول - تعيين حالة المستخدم وتفعيل المصادقة
       if (data?.user) {
+        console.log('تم تسجيل الدخول بنجاح كـ: ', data.user.role);
+        
+        // حفظ معلومات الجلسة في store
         setUser(data.user);
         setIsAuthenticated(true);
         
-        // توجيه المستخدم حسب الدور
-        if (data.user.role === 'admin') {
-          router.replace('/admin/admin-dashboard');
-        } else if (data.user.role === 'shop_owner') {
-          console.log("تم تسجيل الدخول بنجاح كصاحب محل، جاري التوجيه...");
-          router.replace('/shop/shop-dashboard');
-        } else if (data.user.role === 'customer') {
-          router.replace('/customer/customer-dashboard');
-        } else {
-          // إذا لم يكن هناك دور محدد، يتم الانتقال إلى الصفحة الرئيسية
-          router.replace('/');
+        // على الويب، تأكد من حفظ معلومات الجلسة بالشكل الصحيح
+        if (Platform.OS === 'web' && rememberMe) {
+          // تحقق مما إذا كان هناك خطأ في حفظ الجلسة
+          try {
+            const storedValue = localStorage.getItem('sb-egnvrxqoamgpjtmhnhri-auth-token');
+            console.log('تم حفظ الجلسة في localStorage:', !!storedValue);
+          } catch (e) {
+            console.error('فشل في التحقق من localStorage:', e);
+          }
         }
+        
+        // تحميل مسبق للصفحات التي سيتم توجيه المستخدم إليها
+        if (Platform.OS === 'web') {
+          let targetRoute = '/';
+          if (data.user.role === 'admin') {
+            targetRoute = '/admin/admin-dashboard';
+          } else if (data.user.role === 'shop_owner') {
+            targetRoute = '/shop/shop-dashboard';
+          } else if (data.user.role === 'customer') {
+            targetRoute = '/customer/customer-dashboard';
+          }
+          
+          // تحميل الصفحة الهدف مسبقًا قبل الانتقال إليها
+          try {
+            const preloadLink = document.createElement('link');
+            preloadLink.rel = 'preload';
+            preloadLink.href = targetRoute;
+            preloadLink.as = 'document';
+            document.head.appendChild(preloadLink);
+            
+            console.log('تم تحميل الصفحة الهدف مسبقًا:', targetRoute);
+          } catch (e) {
+            console.error('فشل في التحميل المسبق للصفحة الهدف:', e);
+          }
+        }
+        
+        // استخدام setTimeout لضمان استكمال تحديث الحالة قبل الانتقال
+        // يساعد في تجنب حدوث توجيه مكرر
+        setTimeout(() => {
+          if (data.user.role === 'admin') {
+            router.replace('/admin/admin-dashboard');
+          } else if (data.user.role === 'shop_owner') {
+            console.log("تم تسجيل الدخول بنجاح كصاحب محل، جاري التوجيه...");
+            router.replace('/shop/shop-dashboard');
+          } else if (data.user.role === 'customer') {
+            router.replace('/customer/customer-dashboard');
+          } else {
+            // إذا لم يكن هناك دور محدد، يتم الانتقال إلى الصفحة الرئيسية
+            router.replace('/');
+          }
+        }, 100);
+      } else {
+        setError('لم يتم استرجاع بيانات المستخدم بشكل صحيح');
+        setLoading(false);
       }
     } catch (err: any) {
+      console.error('خطأ غير متوقع أثناء تسجيل الدخول:', err);
       setError(err.message || 'فشل تسجيل الدخول');
       setLoading(false);
     }

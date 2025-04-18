@@ -14,15 +14,26 @@
         {
           "photosPermission": "نحتاج الوصول إلى الصور لاختيار صور تحتوي على رموز QR"
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "نحتاج الوصول إلى موقعك لعرضه على الخريطة وتسجيل موقع المحل",
+          "locationWhenInUsePermission": "نحتاج الوصول إلى موقعك لعرضه على الخريطة وتسجيل موقع المحل"
+        }
       ]
     ],
-    "name": "yazcar",
+    "name": "ياز كار",
     "slug": "yazcar",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "platforms": ["ios", "android", "web"],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -33,7 +44,13 @@
       "bundleIdentifier": "com.yazcar.app",
       "infoPlist": {
         "NSCameraUsageDescription": "نحتاج إلى استخدام الكاميرا لمسح رموز QR للسيارات",
-        "NSPhotoLibraryUsageDescription": "نحتاج الوصول إلى الصور لاختيار صور تحتوي على رموز QR"
+        "NSPhotoLibraryUsageDescription": "نحتاج الوصول إلى الصور لاختيار صور تحتوي على رموز QR",
+        "NSLocationWhenInUseUsageDescription": "نحتاج الوصول إلى موقعك لعرضه على الخريطة وتسجيل موقع المحل",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "نحتاج الوصول إلى موقعك لعرضه على الخريطة وتسجيل موقع المحل",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "config": {
+        "googleMapsApiKey": "AIzaSyCXT9qeM5gKNBcCehXbwfc7lXhJIFQTerA"
       }
     },
     "android": {
@@ -42,12 +59,44 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.yazcar.app",
-      "permissions": ["CAMERA", "READ_EXTERNAL_STORAGE"]
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyAIcNBn1FUMMML1BS9cOUD2mrtIzzeQ7UI"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png",
-      "bundler": "metro"
+      "bundler": "metro",
+      "meta": {
+        "title": "ياز كار | ياز كار فاكس - تطبيق صيانة السيارات الأول",
+        "description": "ياز كار - خدمة صيانة السيارات الشاملة في فلسطين، احجز صيانة، تتبع سجل صيانة سيارتك، ياز كار فاكس لفحص حالة السيارة",
+        "viewport": "width=device-width, initial-scale=1",
+        "robots": "index,follow",
+        "googlebot": "index,follow",
+        "keywords": "ياز كار, ياز, ياز كار فاكس, صيانة سيارات, حجز صيانة, فحص سيارات, فلسطين, carfax, yazcar"
+      },
+      "config": {
+        "googleMapsApiKey": "AIzaSyAWp1chILdfMqIjFk8uWXmPkaUTVKY1NHI"
+      }
     },
-    "newArchEnabled": true
+    "description": "ياز كار - تطبيق صيانة السيارات الأول في فلسطين، احجز صيانة، تتبع سجل صيانة سيارتك، ياز كار فاكس",
+    "keywords": ["ياز كار", "ياز", "ياز كار فاكس", "صيانة سيارات", "حجز صيانة", "فحص سيارات", "فلسطين", "carfax", "yazcar"],
+    "newArchEnabled": true,
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "cafd14f1-24ae-4611-8564-303d1b62fa76"
+      }
+    }
   }
 }
