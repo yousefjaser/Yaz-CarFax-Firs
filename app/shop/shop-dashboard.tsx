@@ -8,6 +8,8 @@ import { supabase } from '../config';
 import Loading from '../components/Loading';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useRouter } from 'expo-router';
+import useSWR, { mutate } from 'swr';
+import { fetchUserProfile, fetchShopData, fetchShopCars, getCacheKey } from '../utils/swr-config';
 
 // تطبيق RTL
 if (I18nManager && !I18nManager.isRTL) {
@@ -216,23 +218,90 @@ const ProfessionalCarsCounter = ({ count }) => {
 export default function ShopDashboard() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
     registeredCars: 0,
     notifications: 3,
   });
   
+  // استخدام SWR لتحميل بيانات المستخدم
+  const { data: profile, error: profileError, isLoading: profileLoading } = useSWR(
+    user ? getCacheKey('user-profile', user.id) : null,
+    () => fetchUserProfile(user.id),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 10000, // 10 ثوانٍ
+      focusThrottleInterval: 10000,
+    }
+  );
+  
+  // استخدام SWR لتحميل بيانات المحل
+  const { data: shopData, error: shopError, isLoading: shopLoading } = useSWR(
+    user ? getCacheKey('shop-data', user.id) : null,
+    () => fetchShopData(user.id),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 10000,
+      focusThrottleInterval: 10000,
+    }
+  );
+  
+  // استخدام SWR لتحميل بيانات السيارات باستخدام معرف المحل
+  const { data: carsData, error: carsError, isLoading: carsLoading } = useSWR(
+    shopData ? getCacheKey('shop-cars', shopData.id) : null,
+    () => fetchShopCars(shopData.id),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 10000,
+      focusThrottleInterval: 10000,
+    }
+  );
+  
+  // تحديث عدد السيارات عند تغير بيانات السيارات
+  useEffect(() => {
+    if (carsData) {
+      setStats(prev => ({
+        ...prev,
+        registeredCars: carsData.length || 0
+      }));
+      console.log("تم تحديث عدد السيارات:", carsData.length);
+    }
+  }, [carsData]);
+  
+  // الاستماع إلى تغييرات Supabase في الوقت الفعلي
+  useEffect(() => {
+    if (!shopData) return;
+    
+    // إعداد الاستماع لتغييرات جدول cars_new
+    const subscription = supabase
+      .channel('public:cars_new')
+      .on('INSERT', payload => {
+        if (payload.new.shop_id === shopData.id) {
+          console.log('تم إضافة سيارة جديدة، تحديث البيانات');
+          mutate(getCacheKey('shop-cars', shopData.id));
+        }
+      })
+      .on('DELETE', payload => {
+        if (payload.old.shop_id === shopData.id) {
+          console.log('تم حذف سيارة، تحديث البيانات');
+          mutate(getCacheKey('shop-cars', shopData.id));
+        }
+      })
+      .subscribe();
+    
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, [shopData]);
+  
   useEffect(() => {
     if (global) {
       global.router = router;
     }
   }, [router]);
-
-  useEffect(() => {
-    loadProfileData();
-  }, []);
 
   useEffect(() => {
     // تعيين لون أيقونات شريط الحالة للون الأسود
@@ -247,110 +316,6 @@ export default function ShopDashboard() {
       StatusBar.setBackgroundColor(COLORS.primary);
     };
   }, []);
-
-  const loadProfileData = async () => {
-    if (!user) return;
-    
-    try {
-      if (!refreshing) setLoading(true);
-      console.log("بدء تحميل بيانات المستخدم:", user.id);
-      
-      // 1. تحميل معلومات الملف الشخصي
-      let profileData = null;
-      try {
-        const { data, error } = await supabase
-          .from('users')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-      
-        if (error) {
-          console.error('فشل في تحميل معلومات المستخدم:', error);
-        } else {
-          console.log("تم تحميل بيانات المستخدم بنجاح:", data);
-          profileData = data;
-          setProfile(profileData);
-        }
-      } catch (error) {
-        console.error('خطأ في استعلام جدول users:', error);
-        // استمر على أي حال
-      }
-      
-      // 2. تحميل إحصائيات المحل
-      let shopData = null;
-      try {
-        const { data, error } = await supabase
-        .from('shops')
-        .select('*')
-        .eq('owner_id', user.id)
-        .single();
-      
-        if (error) {
-          console.error('فشل في تحميل معلومات المحل:', error);
-        } else {
-          shopData = data;
-          console.log("تم تحميل بيانات المحل بنجاح:", shopData);
-        }
-      } catch (error) {
-        console.error('خطأ في استعلام جدول shops:', error);
-        // استمر على أي حال
-      }
-      
-      if (!shopData) {
-        console.log("لم يتم العثور على بيانات المحل للمستخدم:", user.id);
-        setLoading(false);
-        return;
-      }
-      
-      console.log("معرف المحل المستخدم في الاستعلام:", shopData.id);
-      
-      // تحميل عدد السيارات المسجلة من جدول cars_new
-      let carsCount = 0;
-      try {
-        console.log("جاري استعلام السيارات من جدول cars_new للمحل:", shopData.id);
-        
-        const { data, error } = await supabase
-          .from('cars_new')
-          .select('*')
-          .eq('shop_id', shopData.id);
-        
-        if (error) {
-          console.error('فشل استعلام السيارات من cars_new:', error);
-        } else {
-          console.log("نتيجة استعلام جدول cars_new:", { count: data?.length, data });
-          
-          if (data && data.length > 0) {
-            carsCount = data.length;
-            console.log("تم العثور على", carsCount, "سيارة في جدول cars_new للمحل:", shopData.id);
-            console.log("عينة من بيانات السيارات:", JSON.stringify(data[0]));
-          } else {
-            console.log("لم يتم العثور على سيارات في جدول cars_new للمحل:", shopData.id);
-          }
-        }
-      } catch (error) {
-        console.error('خطأ في استعلام جدول cars_new:', error);
-      }
-      
-      // إذا لم يتم العثور على سيارات، نقوم بتعيين قيمة افتراضية للاختبار
-      if (carsCount === 0) {
-        console.log("تحذير: لم يتم العثور على سيارات في cars_new، استخدام قيمة افتراضية 5 للتجربة");
-        // يمكنك تعليق هذا السطر بعد التأكد من أن الاستعلام يعمل بشكل صحيح
-        // carsCount = 5; 
-      }
-      
-      setStats({
-        registeredCars: carsCount || 0,
-        notifications: 3,
-      });
-      
-      console.log("تم تعيين العدد النهائي للسيارات:", carsCount || 0);
-    } catch (error) {
-      console.error('حدث خطأ أثناء تحميل البيانات:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
   
   const handleAddCar = () => {
     console.log('إضافة سيارة جديدة');
@@ -378,10 +343,26 @@ export default function ShopDashboard() {
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
     console.log("تحديث البيانات...");
-    loadProfileData();
-  }, []);
+    
+    // إعادة تحميل جميع البيانات
+    if (user) {
+      mutate(getCacheKey('user-profile', user.id));
+    }
+    
+    if (shopData) {
+      mutate(getCacheKey('shop-data', user.id));
+      mutate(getCacheKey('shop-cars', shopData.id));
+    }
+    
+    // إيقاف التحديث بعد 1 ثانية
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  }, [user, shopData]);
 
-  if (loading && !refreshing) {
+  // عرض حالة التحميل إذا كانت البيانات الأساسية قيد التحميل
+  const isLoading = profileLoading || shopLoading;
+  if (isLoading && !carsData && !refreshing) {
     return <Loading fullScreen message="جاري تحميل البيانات..." />;
   }
 

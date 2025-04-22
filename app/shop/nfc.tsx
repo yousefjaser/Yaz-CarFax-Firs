@@ -14,14 +14,19 @@ import {
   Easing,
   Dimensions,
   Linking,
-  ScrollView
+  ScrollView,
+  RefreshControl
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { COLORS, SPACING } from '../constants';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { Surface, Button, ActivityIndicator } from 'react-native-paper';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
+import { supabase } from '../config';
+import { Card, TextInput, Divider, List } from 'react-native-paper';
+import * as Clipboard from 'expo-clipboard';
+import { Ionicons } from '@expo/vector-icons';
 
 // تحقق إذا كان المستخدم يستخدم Expo Go
 const isExpoGo = Constants.executionEnvironment === 'storeClient';
@@ -54,6 +59,7 @@ if (!isExpoGo && !isWeb) {
 
 export default function NfcScreen() {
   const router = useRouter();
+  const searchParams = useLocalSearchParams();
   const [isNfcSupported, setIsNfcSupported] = useState(null);
   const [isNfcEnabled, setIsNfcEnabled] = useState(false);
   const [hasStartedScan, setHasStartedScan] = useState(false);
@@ -61,6 +67,7 @@ export default function NfcScreen() {
   const [tagId, setTagId] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
+  const [isAddingToCar, setIsAddingToCar] = useState(false);
   
   // تأثيرات الرسوم المتحركة
   const scanAnimation = useRef(new Animated.Value(0)).current;
@@ -69,6 +76,12 @@ export default function NfcScreen() {
   
   // تسجيل حالة الشاشة
   useEffect(() => {
+    // التحقق إذا تم فتح الشاشة لإضافة سيارة
+    const action = searchParams.action;
+    if (action === 'add-car') {
+      setIsAddingToCar(true);
+    }
+    
     // التحقق من بيئة التشغيل
     if (isExpoGo) {
       setErrorMessage('لا يمكن استخدام NFC في بيئة Expo Go. يرجى استخدام development build أو الإصدار النهائي من التطبيق.');
@@ -291,34 +304,102 @@ export default function NfcScreen() {
     }
   };
   
-  const handleTagDiscovered = (tag) => {
+  const handleTagDiscovered = async (tag) => {
     try {
       console.log('تم اكتشاف البطاقة:', tag);
-      // معالجة معرّف البطاقة
       let id = '';
       
+      // استخراج المعرف من البطاقة
       if (tag?.id) {
-        // استخدام المعرّف المضمن مباشرة إذا كان موجودًا
         id = tag.id;
       } else if (tag?.ndefMessage && tag.ndefMessage.length > 0) {
-        // محاولة قراءة رسالة NDEF
         const ndefRecord = tag.ndefMessage[0];
         if (ndefRecord) {
-          // فك ترميز السجل
-          const payload = Ndef.text.decodePayload(ndefRecord.payload);
-          id = payload;
+          try {
+            const payload = Ndef.text.decodePayload(ndefRecord.payload);
+            id = payload;
+          } catch (ex) {
+            console.warn('خطأ في فك ترميز السجل:', ex);
+            id = '';
+          }
         }
       } else if (tag?.techTypes?.includes('android.nfc.tech.NfcA')) {
-        // استخدام معرّف NfcA إذا كان متاحًا
         id = tag.id;
       }
       
-      if (id) {
+      if (!id) {
+        setErrorMessage('لم يتم العثور على معرّف صالح في البطاقة. يرجى المحاولة مرة أخرى.');
+        setIsScanning(false);
+        return;
+      }
+      
+      // تنفيذ مختلف بناءً على الحالة
+      if (isAddingToCar) {
+        // نحن في حالة إضافة بطاقة NFC إلى سيارة
+        // استعلام عن رمز NFC غير مستخدم من قاعدة البيانات
+        try {
+          const { data: nfcCode, error } = await supabase
+            .from('nfc_codes')
+            .select('code')
+            .eq('is_used', false)
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .single();
+            
+          if (error) {
+            throw error;
+          }
+          
+          if (!nfcCode) {
+            setErrorMessage('لا توجد رموز NFC متاحة. يرجى التواصل مع المسؤول.');
+            setIsScanning(false);
+            return;
+          }
+          
+          // تمرير الرمز غير المستخدم إلى صفحة إضافة السيارة
+          setTagId(nfcCode.code);
+          
+          // برمجة البطاقة NFC بالرمز
+          if (Ndef && isNfcAvailable) {
+            try {
+              // محاولة كتابة الرابط في البطاقة
+              const fullUrl = `https://yazcar.xyz/shop/public/car/${nfcCode.code}`;
+              const bytes = Ndef.encodeMessage([
+                Ndef.uriRecord(fullUrl),
+              ]);
+              
+              if (isIOS) {
+                await NfcManager.requestNdefWrite(bytes);
+              } else {
+                await NfcManager.writeNdefMessage(bytes);
+              }
+              
+              console.log('تمت برمجة البطاقة بالرابط:', fullUrl);
+            } catch (writeError) {
+              console.warn('خطأ في كتابة البيانات على البطاقة:', writeError);
+              // نستمر حتى لو فشلت عملية الكتابة
+            }
+          }
+          
+          // التنقل إلى صفحة إضافة السيارة
+          setShowSuccess(true);
+          setTimeout(() => {
+            router.replace({
+              pathname: '/shop/add-car',
+              params: { nfcId: nfcCode.code }
+            });
+          }, 1500);
+          
+        } catch (dbError) {
+          console.error('خطأ في استعلام قاعدة البيانات:', dbError);
+          setErrorMessage('حدث خطأ أثناء الحصول على رمز NFC. يرجى المحاولة مرة أخرى.');
+          setIsScanning(false);
+        }
+      } else {
+        // نحن في وضع المسح العادي للرجوع إلى معلومات السيارة
+        // استخدام المعرف من البطاقة مباشرة
         setTagId(id);
         setShowSuccess(true);
-        setIsScanning(false);
-      } else {
-        setErrorMessage('لم يتم العثور على معرّف صالح في البطاقة. يرجى المحاولة مرة أخرى.');
         setIsScanning(false);
       }
     } catch (ex) {
@@ -450,7 +531,9 @@ export default function NfcScreen() {
         
         <Text style={styles.successTitle}>تم مسح البطاقة بنجاح!</Text>
         <Text style={styles.successMessage}>
-          جارٍ التوجيه إلى صفحة السيارة...
+          {isAddingToCar 
+            ? 'جارٍ التوجيه إلى صفحة إضافة السيارة...'
+            : 'جارٍ التوجيه إلى صفحة السيارة...'}
         </Text>
         
         <ActivityIndicator 

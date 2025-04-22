@@ -22,6 +22,8 @@ import {
   getBannerImageUrl, 
   getProfileImageUrl 
 } from '../../../services/cloudinary';
+import useSWR from 'swr';
+import { fetchCarDetails, fetchCarServiceHistory, getCacheKey } from '../../../utils/swr-config';
 
 // إجبار واجهة من اليمين لليسار
 I18nManager.forceRTL(true);
@@ -78,61 +80,97 @@ interface ServiceRecord {
 export default function CarDetailsScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
+  const [refreshing, setRefreshing] = useState(false);
   
-  const [loading, setLoading] = useState(true);
-  const [car, setCar] = useState<Car | null>(null);
-  const [serviceRecords, setServiceRecords] = useState<ServiceRecord[]>([]);
+  // استخدام SWR لتحميل تفاصيل السيارة
+  const { data: car, error: carError, isLoading: carLoading, mutate: mutateCar } = useSWR(
+    id ? getCacheKey('car-details', id) : null,
+    () => fetchCarDetails(id as string),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 10000, // 10 ثوانٍ
+      focusThrottleInterval: 10000
+    }
+  );
   
+  // استخدام SWR لتحميل سجل خدمات السيارة
+  const { data: serviceRecords, error: serviceError, isLoading: serviceLoading, mutate: mutateServices } = useSWR(
+    id ? getCacheKey('car-service-history', id) : null,
+    () => fetchCarServiceHistory(id as string),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 10000, // 10 ثوانٍ
+      focusThrottleInterval: 10000
+    }
+  );
+  
+  // الاستماع إلى تغييرات قاعدة البيانات في الوقت الفعلي
   useEffect(() => {
-    fetchCarDetails();
+    if (!id) return;
+    
+    // إعداد الاستماع لتغييرات جدول service_visits
+    const serviceChannel = supabase.channel('service-changes');
+    const serviceSubscription = serviceChannel
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'service_visits',
+        filter: `car_id=eq.${id}`
+      }, (payload) => {
+        console.log('تم إضافة خدمة جديدة، تحديث البيانات');
+        mutateServices();
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'service_visits',
+        filter: `car_id=eq.${id}`
+      }, (payload) => {
+        console.log('تم تحديث خدمة، تحديث البيانات');
+        mutateServices();
+      })
+      .on('postgres_changes', {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'service_visits',
+        filter: `car_id=eq.${id}`
+      }, (payload) => {
+        console.log('تم حذف خدمة، تحديث البيانات');
+        mutateServices();
+      })
+      .subscribe();
+    
+    // إعداد الاستماع لتغييرات جدول cars_new
+    const carChannel = supabase.channel('car-changes');
+    const carSubscription = carChannel
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'cars_new',
+        filter: `qr_id=eq.${id}`
+      }, (payload) => {
+        console.log('تم تحديث بيانات السيارة، تحديث البيانات');
+        mutateCar();
+      })
+      .subscribe();
+    
+    return () => {
+      // إلغاء الاشتراكات بالطريقة الصحيحة
+      serviceChannel.unsubscribe();
+      carChannel.unsubscribe();
+    };
   }, [id]);
   
-  const fetchCarDetails = async () => {
-    try {
-      setLoading(true);
-      
-      if (!id) return;
-      
-      // جلب معلومات السيارة مع بيانات المحل المحسنة
-      const { data: carData, error: carError } = await supabase
-        .from('cars_new')
-        .select(`
-          *,
-          shop: shop_id (
-            phone,
-            whatsapp_prefix,
-            name,
-            banner_image,
-            logo_url,
-            address,
-            coordinates,
-            working_hours,
-            is_approved
-          )
-        `)
-        .eq('qr_id', id)
-        .single();
-      
-      if (carError) throw carError;
-      
-      setCar(carData);
-      
-      // جلب سجلات الصيانة
-      const { data: serviceData, error: serviceError } = await supabase
-        .from('service_visits')
-        .select('*')
-        .eq('car_id', id)
-        .order('date', { ascending: false });
-      
-      if (serviceError) throw serviceError;
-      
-      setServiceRecords(serviceData || []);
-      
-    } catch (error) {
-      console.error('Error fetching car details:', error);
-    } finally {
-      setLoading(false);
-    }
+  const handleRefresh = () => {
+    setRefreshing(true);
+    Promise.all([
+      mutateCar(),
+      mutateServices()
+    ]).finally(() => {
+      setRefreshing(false);
+    });
   };
 
   const handleCall = () => {
@@ -193,7 +231,9 @@ export default function CarDetailsScreen() {
     return `${day}/${month}/${year}`;
   };
 
-  if (loading) {
+  // حالة التحميل
+  const isLoading = carLoading || serviceLoading;
+  if (isLoading && !refreshing) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar
@@ -208,7 +248,8 @@ export default function CarDetailsScreen() {
     );
   }
 
-  if (!car) {
+  // حالة حدوث خطأ أو عدم وجود بيانات
+  if (carError || !car) {
     return (
       <SafeAreaView style={styles.container}>
         <StatusBar
@@ -250,7 +291,17 @@ export default function CarDetailsScreen() {
           <Ionicons name="chevron-back" size={24} color="#333" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>تفاصيل السيارة</Text>
-        <View style={{ width: 24 }} />
+        <TouchableOpacity 
+          style={styles.refreshBtn} 
+          onPress={handleRefresh}
+          disabled={refreshing}
+        >
+          <Ionicons 
+            name="refresh" 
+            size={22} 
+            color={refreshing ? "#999" : "#333"} 
+          />
+        </TouchableOpacity>
       </View>
       
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -325,24 +376,37 @@ export default function CarDetailsScreen() {
           </View>
           
           {/* أزرار التواصل */}
-          {car.shop?.phone && (
-            <View style={styles.contactBtns}>
-              <TouchableOpacity style={[styles.contactBtn, styles.callBtn]} onPress={handleCall}>
-                <Ionicons name="call" size={18} color="#fff" />
-                <Text style={styles.contactBtnText}>اتصال بنا</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity style={[styles.contactBtn, styles.whatsappBtn]} onPress={handleWhatsApp}>
-                <FontAwesome5 name="whatsapp" size={18} color="#fff" />
-                <Text style={styles.contactBtnText}>واتساب</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity style={[styles.contactBtn, styles.locationBtn]} onPress={openMap}>
-                <Ionicons name="location" size={18} color="#fff" />
-                <Text style={styles.contactBtnText}>خريطة</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          <View style={styles.quickContactContainer}>
+            <TouchableOpacity 
+              style={styles.quickContactButton}
+              onPress={handleCall}
+            >
+              <View style={styles.contactIconContainer}>
+                <Ionicons name="call" size={20} color="#3498db" />
+              </View>
+              <Text style={styles.contactBtnText}>اتصال</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.quickContactButton}
+              onPress={handleWhatsApp}
+            >
+              <View style={styles.contactIconContainer}>
+                <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
+              </View>
+              <Text style={styles.contactBtnText}>واتساب</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.quickContactButton}
+              onPress={openMap}
+            >
+              <View style={styles.contactIconContainer}>
+                <Ionicons name="location" size={20} color="#E74C3C" />
+              </View>
+              <Text style={styles.contactBtnText}>الموقع</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* بانر إعلاني */}
@@ -482,89 +546,24 @@ export default function CarDetailsScreen() {
             <Text style={[styles.tableHeaderText, {flex: 1}]}>الكيلومترات</Text>
             <Text style={[styles.tableHeaderText, {flex: 1}]}>العداد القادم</Text>
           </View>
-          
-          {serviceRecords.length > 0 ? (
-            serviceRecords.map((record, index) => {
-              // جمع كل أنواع الصيانة في سجل واحد
-              const serviceTypes = [];
-              
-              // إضافة نوع الصيانة حسب service_type من الجدول إن وجد
-              if (record.service_type) {
-                serviceTypes.push(record.service_type);
-              } else {
-                // إضافة أنواع الصيانة حسب العمليات التي تمت
-                if (record.oil_type) {
-                  serviceTypes.push('تغيير زيت');
-                }
-                
-                if (record.oil_filter_changed) {
-                  serviceTypes.push('تغيير فلتر زيت');
-                }
-                
-                if (record.air_filter_changed) {
-                  serviceTypes.push('تغيير فلتر هواء');
-                }
-                
-                if (record.cabin_filter_changed) {
-                  serviceTypes.push('تغيير فلتر مكيف');
-                }
-                
-                // إذا كان هناك ملاحظات، أضفها كنوع صيانة
-                if (record.notes) {
-                  serviceTypes.push(record.notes);
-                }
-                
-                // إذا لم يكن هناك أي نوع صيانة محدد
-                if (serviceTypes.length === 0) {
-                  serviceTypes.push('صيانة دورية');
-                }
-              }
-              
-              // دمج أنواع الصيانة في نص واحد
-              const maintenanceType = serviceTypes.join(' + ');
-              
-              return (
-                <View key={record.id || index} style={styles.maintenanceCard}>
-                  <View style={styles.maintenanceRow}>
-                    <Text style={styles.maintenanceName}>{maintenanceType}</Text>
-                    <Text style={styles.maintenanceDate}>{formatDate(record.date)}</Text>
-                  </View>
-                  <Divider style={styles.maintenanceDivider} />
-                  <View style={styles.maintenanceRow}>
-                    <View style={styles.odometerContainer}>
-                      <Text style={styles.odometerLabel}>الكيلومترات</Text>
-                      <Text style={styles.odometerValue}>{record.mileage.toLocaleString()}</Text>
-                    </View>
-                    <View style={styles.odometerContainer}>
-                      <Text style={styles.odometerLabel}>العداد القادم</Text>
-                      <Text style={styles.odometerValue}>{record.next_service_mileage.toLocaleString()}</Text>
-                    </View>
-                  </View>
-                </View>
-              );
-            })
+
+          {serviceRecords && serviceRecords.length > 0 ? (
+            serviceRecords.map((record: any, index: number) => (
+              <View key={index} style={styles.tableRow}>
+                <Text style={[styles.tableCell, {flex: 1.5}]}>{record.service_type || 'غير محدد'}</Text>
+                <Text style={[styles.tableCell, {flex: 1}]}>{formatDate(record.date)}</Text>
+                <Text style={[styles.tableCell, {flex: 1}]}>{record.mileage ? `${record.mileage} كم` : '-'}</Text>
+                <Text style={[styles.tableCell, {flex: 1}]}>{record.next_service_mileage ? `${record.next_service_mileage} كم` : '-'}</Text>
+              </View>
+            ))
           ) : (
             <View style={styles.emptyRecords}>
-              <MaterialCommunityIcons name="calendar-remove" size={48} color="#BDBDBD" />
-              <Text style={styles.emptyText}>لا توجد سجلات صيانة</Text>
+              <Text style={styles.emptyRecordsText}>لا توجد سجلات صيانة حتى الآن</Text>
             </View>
           )}
-          
-          {/* زر إضافة صيانة جديدة */}
-          <TouchableOpacity 
-            style={styles.addServiceBtn}
-            onPress={() => router.push({
-              pathname: "/shop/add-service-visit",
-              params: { carId: id }
-            })}
-          >
-            <Text style={styles.addServiceText}>إضافة صيانة جديدة</Text>
-            <Ionicons name="add" size={20} color="#fff" />
-          </TouchableOpacity>
         </View>
         
-        {/* مسافة إضافية للتمرير */}
-        <View style={{ height: 30 }} />
+        <View style={styles.footerSpace} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -773,12 +772,12 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'right',
   },
-  contactBtns: {
+  quickContactContainer: {
     flexDirection: 'row',
     paddingHorizontal: 15,
     marginTop: 10,
   },
-  contactBtn: {
+  quickContactButton: {
     flex: 1,
     flexDirection: 'row-reverse',
     alignItems: 'center',
@@ -787,14 +786,8 @@ const styles = StyleSheet.create({
     marginHorizontal: 3,
     borderRadius: 6,
   },
-  callBtn: {
-    backgroundColor: '#1976D2',
-  },
-  locationBtn: {
-    backgroundColor: '#E53935',
-  },
-  whatsappBtn: {
-    backgroundColor: '#00C853',
+  contactIconContainer: {
+    marginRight: 8,
   },
   contactBtnText: {
     color: '#fff',
@@ -848,22 +841,6 @@ const styles = StyleSheet.create({
     marginRight: 8,
     fontSize: 14,
     fontWeight: 'bold',
-  },
-  carInfoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 15,
-    marginBottom: 10,
-  },
-  carName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  carPlate: {
-    fontSize: 14,
-    color: '#777',
-    marginTop: 2,
   },
   sectionContainer: {
     backgroundColor: '#fff',
@@ -959,87 +936,32 @@ const styles = StyleSheet.create({
     color: '#555',
     textAlign: 'center',
   },
-  maintenanceCard: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    marginBottom: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#eee',
-  },
-  maintenanceRow: {
+  tableRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 5,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
   },
-  maintenanceName: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
-    flex: 1.5,
-    textAlign: 'right',
-  },
-  maintenanceDate: {
-    fontSize: 13,
-    color: '#333',
-    flex: 1,
-    textAlign: 'center',
-  },
-  maintenanceDetails: {
-    fontSize: 12,
-    color: '#666',
-    flex: 1,
-    textAlign: 'center',
-  },
-  maintenanceNextService: {
-    fontSize: 12,
-    color: '#666',
-    flex: 1,
-    textAlign: 'center',
-  },
-  maintenanceDivider: {
-    marginVertical: 8,
-    backgroundColor: '#eee',
-  },
-  odometerContainer: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  odometerLabel: {
+  tableCell: {
     fontSize: 11,
-    color: '#888',
-    marginBottom: 3,
-  },
-  odometerValue: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#444',
+    color: '#555',
+    textAlign: 'center',
   },
   emptyRecords: {
     alignItems: 'center',
     justifyContent: 'center',
     padding: 30,
   },
-  emptyText: {
+  emptyRecordsText: {
     marginTop: 10,
     fontSize: 14,
     color: '#999',
   },
-  addServiceBtn: {
-    backgroundColor: '#1976D2',
-    borderRadius: 6,
-    flexDirection: 'row-reverse',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    marginTop: 15,
-    marginHorizontal: 5,
+  footerSpace: {
+    height: 30,
   },
-  addServiceText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    marginRight: 8,
-    fontSize: 14,
+  refreshBtn: {
+    padding: 5,
   },
 }); 

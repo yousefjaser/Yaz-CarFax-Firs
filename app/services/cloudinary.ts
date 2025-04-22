@@ -218,10 +218,15 @@ export const getTransformedImageUrl = (
  * @returns رابط الصورة المحولة
  */
 export const getBannerImageUrl = (
-  url: string,
+  url: string | null | undefined,
   width: number,
   height: number
 ): string => {
+  // التحقق من أن URL موجود وصالح
+  if (!url || typeof url !== 'string' || url.trim() === '') {
+    // رابط صورة افتراضية آمنة في حالة عدم وجود صورة
+    return 'https://via.placeholder.com/1200x220/3B82F6/FFFFFF?text=YazCar';
+  }
   return getTransformedImageUrl(url, width, height, 85, ImageFitMode.PAD_WITH_GRADIENT);
 };
 
@@ -233,10 +238,16 @@ export const getBannerImageUrl = (
  * @returns رابط الصورة المحولة
  */
 export const getProfileImageUrl = (
-  url: string,
+  url: string | null | undefined,
   size: number = 200
 ): string => {
-  if (!url || !url.includes('cloudinary.com')) {
+  // التحقق من أن URL موجود وصالح
+  if (!url || typeof url !== 'string' || url.trim() === '') {
+    // رابط صورة افتراضية آمنة في حالة عدم وجود صورة
+    return 'https://via.placeholder.com/200/3B82F6/FFFFFF?text=YC';
+  }
+  
+  if (!url.includes('cloudinary.com')) {
     return url;
   }
   
@@ -251,11 +262,10 @@ export const getProfileImageUrl = (
     `w_${size}`,
     `h_${size}`,
     'c_fill',
-    'g_face',
-    'r_max', // قص دائري
-    'q_auto:good'
+    'g_auto:face',
+    'r_max', // دائري بالكامل
+    'q_auto:good' // جودة جيدة تلقائية
   ];
   
-  // إنشاء رابط جديد مع التحويلات - إصلاح التنسيق
   return `${parts[0]}/upload/${transformations.join(',')}/${parts[1]}`;
 }; 

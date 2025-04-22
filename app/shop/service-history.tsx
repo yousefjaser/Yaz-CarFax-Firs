@@ -1,7 +1,7 @@
 // @ts-ignore
-import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, RefreshControl } from 'react-native';
-import { Appbar, Text, Card, Divider, Searchbar, Chip, Button } from 'react-native-paper';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { View, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Platform } from 'react-native';
+import { Appbar, Text, Card, Divider, Searchbar, Chip, Button, Badge } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import { supabase } from '../config';
 import { useAuthStore } from '../utils/store';
@@ -9,6 +9,8 @@ import Loading from '../components/Loading';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { ScrollView } from 'react-native-gesture-handler';
+import useSWR, { mutate } from 'swr';
+import { fetchShopData, fetchShopServiceHistory, fetchCarDetails, fetchCarServiceHistory, getCacheKey } from '../utils/swr-config';
 
 interface Customer {
   id: string;
@@ -18,79 +20,102 @@ interface Customer {
 
 export default function ServiceHistoryScreen() {
   const router = useRouter();
-  const { carId } = useLocalSearchParams();
   const { user } = useAuthStore();
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const params = useLocalSearchParams();
+  const carId = params.carId?.toString();
+  
   const [serviceVisits, setServiceVisits] = useState<any[]>([]);
   const [filteredVisits, setFilteredVisits] = useState<any[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [shop, setShop] = useState<any>(null);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [car, setCar] = useState<any>(null);
   const [error, setError] = useState('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [shop, setShop] = useState<any>(null);
+  const [car, setCar] = useState<any>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   
-  useEffect(() => {
-    loadShopData();
-    loadCategories();
-    if (carId) {
-      loadCarData();
+  // استخدام SWR لتحميل بيانات المحل
+  const { data: shopData, error: shopError, isLoading: shopLoading } = useSWR(
+    user ? getCacheKey('shop-data', user.id) : null,
+    () => user ? fetchShopData(user.id) : null,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 10000, // 10 ثوانٍ
+      focusThrottleInterval: 10000
     }
-  }, [carId]);
+  );
+  
+  // استخدام SWR لتحميل بيانات السيارة إذا تم تحديد سيارة
+  const { data: carData, error: carError, isLoading: carLoading } = useSWR(
+    carId ? getCacheKey('car-details', carId) : null,
+    () => fetchCarDetails(carId as string),
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 10000
+    }
+  );
+  
+  // استخدام SWR لتحميل سجل خدمات السيارة أو المحل
+  const { data: serviceHistory, error: serviceError, isLoading: serviceLoading, mutate: mutateServices } = useSWR(
+    () => {
+      if (carId) {
+        return getCacheKey('car-service-history', carId);
+      } else if (shopData) {
+        return getCacheKey('shop-service-history', shopData.id);
+      }
+      return null;
+    },
+    () => {
+      if (carId) {
+        return fetchCarServiceHistory(carId);
+      } else if (shopData) {
+        return fetchShopServiceHistory(shopData.id);
+      }
+      return null;
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 10000
+    }
+  );
   
   useEffect(() => {
-    if (shop) {
-      loadData();
+    if (shopData) {
+      setShop(shopData);
     }
-  }, [shop, carId, refreshKey]);
+  }, [shopData]);
+  
+  useEffect(() => {
+    if (carData) {
+      setCar(carData);
+    }
+  }, [carData]);
+  
+  useEffect(() => {
+    if (serviceHistory) {
+      const carLogs: any[] = [];
+      const combinedData = [...(serviceHistory || []), ...carLogs];
+      
+      // ترتيب البيانات المدمجة حسب التاريخ
+      const sortedData = combinedData.sort((a, b) => 
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+      
+      setServiceVisits(sortedData || []);
+      setFilteredVisits(sortedData || []);
+    }
+  }, [serviceHistory]);
   
   useEffect(() => {
     filterVisits();
   }, [serviceVisits, searchQuery, selectedCategoryId]);
   
-  const getCarIdAsString = () => {
-    return Array.isArray(carId) ? carId[0] : carId;
-  };
-  
-  const loadShopData = async () => {
-    if (!user) return;
-    
-    try {
-      const { data, error } = await supabase
-        .from('shops')
-        .select('*')
-        .eq('owner_id', user.id)
-        .maybeSingle();
-      
-      if (error) throw error;
-      setShop(data);
-    } catch (error) {
-      console.error('فشل في تحميل بيانات المحل:', error);
-    }
-  };
-  
-  const loadCarData = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('cars')
-        .select(`
-          *,
-          customer:customer_id (
-            id,
-            name,
-            phone
-          )
-        `)
-        .eq('id', getCarIdAsString())
-        .single();
-      
-      if (error) throw error;
-      setCar(data);
-    } catch (error) {
-      console.error('فشل في تحميل بيانات السيارة:', error);
-    }
+  const getCarIdAsString = (): string => {
+    return carId ? carId.toString() : '';
   };
   
   const loadCategories = async () => {
@@ -107,303 +132,6 @@ export default function ServiceHistoryScreen() {
     }
   };
   
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setRefreshing(false);
-      
-      // تحميل زيارات الخدمة - معالجة نوع carId
-      const carIdStr = getCarIdAsString();
-      const serviceData = await loadServiceVisits(carIdStr);
-      
-      // تحميل بيانات السيارات
-      let query = supabase
-        .from('cars_new')
-        .select('*');
-        
-      // فلترة حسب المتجر إذا كان مسجل دخول
-      if (shop) {
-        query = query.eq('shop_id', shop.id);
-      }
-      
-      // فلترة حسب السيارة إذا تم تحديدها
-      if (carId) {
-        query = query.eq('qr_id', getCarIdAsString());
-      }
-      
-      const { data: carsData, error: carsError } = await query;
-      
-      if (carsError) {
-        console.error('فشل في تحميل بيانات cars_new:', carsError);
-        setError(`فشل في تحميل بيانات السيارات: ${carsError.message}`);
-      }
-      
-      // تحميل بيانات العملاء
-      let customersData: any[] = [];
-      if (carsData && carsData.length > 0) {
-        // استخراج معرفات العملاء الفريدة
-        const customerIds = Array.from(
-          new Set(
-            carsData
-              .map(car => car.customer_id)
-              .filter(id => id !== null && id !== undefined)
-          )
-        );
-        
-        if (customerIds.length > 0) {
-          try {
-            // استخدام طريقة مختلفة - استعلام فردي لكل معرف
-            const fetchPromises = customerIds.map(id => 
-              supabase
-                .from('users')
-                .select('id, name, phone')
-                .eq('id', String(id))
-                .single()
-            );
-            
-            const results = await Promise.all(fetchPromises);
-            
-            // استخراج البيانات الناجحة فقط
-            customersData = results
-              .filter(result => !result.error && result.data)
-              .map(result => result.data);
-              
-          } catch (error) {
-            console.error('فشل في تحميل بيانات العملاء:', error);
-          }
-        }
-      }
-      
-      // إنشاء سجلات من بيانات السيارات
-      const carLogs: any[] = [];
-      
-      if (carsData && carsData.length > 0) {
-        for (const car of carsData) {
-          // البحث عن العميل المرتبط بالسيارة
-          const customer = customersData.find(c => c.id === car.customer_id) || null;
-          
-          // استخدام qr_id بدلاً من id
-          const carId = car.qr_id;
-          
-          // إضافة سجل تسجيل السيارة
-          carLogs.push({
-            id: `car_reg_${carId}_${car.created_at}`,
-            car_id: carId,
-            shop_id: car.shop_id,
-            date: car.created_at,
-            service_category: { id: 'reg', name: 'تسجيل سيارة' },
-            category_id: 'reg',
-            price: 0,
-            mileage: car.current_odometer || 0,
-            notes: `تم تسجيل سيارة ${car.make} ${car.model} برقم لوحة ${car.plate_number}`,
-            car: {
-              qr_id: carId, // استخدام qr_id بدلاً من id
-              make: car.make,
-              model: car.model,
-              year: car.year,
-              plate_number: car.plate_number,
-              customer: customer
-            },
-            log_type: 'car_registration',
-            is_log_entry: true,
-            icon: 'car-hatchback'
-          });
-          
-          // إذا كان هناك تحديث للسيارة بعد الإنشاء، أضف سجل تحديث
-          if (car.updated_at && car.updated_at !== car.created_at) {
-            carLogs.push({
-              id: `car_update_${carId}_${car.updated_at}`,
-              car_id: carId,
-              shop_id: car.shop_id,
-              date: car.updated_at,
-              service_category: { id: 'update', name: 'تحديث بيانات' },
-              category_id: 'update',
-              price: 0,
-              mileage: car.current_odometer || 0,
-              notes: `تم تحديث بيانات سيارة ${car.make} ${car.model}`,
-              car: {
-                qr_id: carId, // استخدام qr_id بدلاً من id
-                make: car.make,
-                model: car.model,
-                year: car.year,
-                plate_number: car.plate_number,
-                customer: customer
-              },
-              log_type: 'car_update',
-              is_log_entry: true,
-              icon: 'pencil'
-            });
-          }
-          
-          // إضافة سجل تغيير الزيت إذا كان متوفرًا
-          if (car.last_oil_change_date) {
-            carLogs.push({
-              id: `oil_change_${carId}_${car.last_oil_change_date}`,
-              car_id: carId,
-              shop_id: car.shop_id,
-              date: car.last_oil_change_date,
-              service_category: { id: 'oil_change', name: 'تغيير زيت المحرك' },
-              category_id: 'oil_change',
-              price: 0,
-              mileage: car.current_odometer || 0,
-              notes: `تم تغيير زيت المحرك (${car.oil_type || ''} ${car.oil_grade || ''})`,
-              car: {
-                qr_id: carId, // استخدام qr_id بدلاً من id
-                make: car.make,
-                model: car.model,
-                year: car.year,
-                plate_number: car.plate_number,
-                customer: customer
-              },
-              log_type: 'oil_change',
-              is_log_entry: true,
-              icon: 'oil'
-            });
-          }
-          
-          // إضافة سجل تغيير فلتر الزيت
-          if (car.oil_filter_changed && car.oil_filter_change_date) {
-            carLogs.push({
-              id: `oil_filter_${carId}_${car.oil_filter_change_date}`,
-              car_id: carId,
-              shop_id: car.shop_id,
-              date: car.oil_filter_change_date,
-              service_category: { id: 'oil_filter', name: 'تغيير فلتر الزيت' },
-              category_id: 'oil_filter',
-              price: 0,
-              mileage: car.current_odometer || 0,
-              notes: `تم تغيير فلتر الزيت`,
-              car: {
-                qr_id: carId, // استخدام qr_id بدلاً من id
-                make: car.make,
-                model: car.model,
-                year: car.year,
-                plate_number: car.plate_number,
-                customer: customer
-              },
-              log_type: 'oil_filter',
-              is_log_entry: true,
-              icon: 'filter'
-            });
-          }
-          
-          // إضافة سجل تغيير فلتر الهواء
-          if (car.air_filter_changed && car.air_filter_change_date) {
-            carLogs.push({
-              id: `air_filter_${carId}_${car.air_filter_change_date}`,
-              car_id: carId,
-              shop_id: car.shop_id,
-              date: car.air_filter_change_date,
-              service_category: { id: 'air_filter', name: 'تغيير فلتر الهواء' },
-              category_id: 'air_filter',
-              price: 0,
-              mileage: car.current_odometer || 0,
-              notes: `تم تغيير فلتر الهواء`,
-              car: {
-                qr_id: carId, // استخدام qr_id بدلاً من id
-                make: car.make,
-                model: car.model,
-                year: car.year,
-                plate_number: car.plate_number,
-                customer: customer
-              },
-              log_type: 'air_filter',
-              is_log_entry: true,
-              icon: 'air-filter'
-            });
-          }
-          
-          // إضافة سجل تغيير فلتر المكيف
-          if (car.cabin_filter_changed && car.cabin_filter_change_date) {
-            carLogs.push({
-              id: `cabin_filter_${carId}_${car.cabin_filter_change_date}`,
-              car_id: carId,
-              shop_id: car.shop_id,
-              date: car.cabin_filter_change_date,
-              service_category: { id: 'cabin_filter', name: 'تغيير فلتر المكيف' },
-              category_id: 'cabin_filter',
-              price: 0,
-              mileage: car.current_odometer || 0,
-              notes: `تم تغيير فلتر المكيف`,
-              car: {
-                qr_id: carId, // استخدام qr_id بدلاً من id
-                make: car.make,
-                model: car.model,
-                year: car.year,
-                plate_number: car.plate_number,
-                customer: customer
-              },
-              log_type: 'cabin_filter',
-              is_log_entry: true,
-              icon: 'air-conditioner'
-            });
-          }
-        }
-      }
-      
-      // دمج سجلات الخدمة وسجلات cars_new
-      const combinedData = [...(serviceData || []), ...carLogs];
-      
-      // ترتيب البيانات المدمجة حسب التاريخ
-      const sortedData = combinedData.sort((a, b) => 
-        new Date(b.date).getTime() - new Date(a.date).getTime()
-      );
-      
-      setServiceVisits(sortedData || []);
-      setFilteredVisits(sortedData || []);
-    } catch (error: any) {
-      console.error('فشل في تحميل البيانات:', error);
-      setError(`فشل في تحميل البيانات: ${error.message}`);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-  
-  const loadServiceVisits = async (carId?: string) => {
-    try {
-      setLoading(true);
-      setError('');
-
-      // إنشاء الاستعلام الأساسي
-      let query = supabase
-        .from('service_visits')
-        .select(`
-          *,
-          service_categories:category_id (*)
-        `);
-
-      // فلترة حسب متجر التاجي إذا كان مسجل دخول
-      if (shop) {
-        query = query.eq('shop_id', shop.id);
-      }
-
-      // فلترة حسب السيارة إذا تم تحديدها
-      if (carId) {
-        query = query.eq('car_id', carId);
-      }
-      
-      // ترتيب النتائج حسب التاريخ تنازلياً
-      query = query.order('date', { ascending: false });
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error loading service visits:', error);
-        setError(`فشل في تحميل الزيارات: ${error.message}`);
-        return [];
-      }
-
-      return data || [];
-    } catch (error: any) {
-      console.error('Error in loadServiceVisits:', error);
-      setError(`فشل في تحميل الزيارات: ${error.message}`);
-      return [];
-    } finally {
-      setLoading(false);
-    }
-  };
-  
   const filterVisits = () => {
     let filtered = [...serviceVisits];
     
@@ -412,14 +140,12 @@ export default function ServiceHistoryScreen() {
       const lowercasedQuery = searchQuery.toLowerCase();
       filtered = filtered.filter(
         visit =>
-          visit.car?.make?.toLowerCase().includes(lowercasedQuery) ||
-          visit.car?.model?.toLowerCase().includes(lowercasedQuery) ||
-          visit.car?.plate_number?.toLowerCase().includes(lowercasedQuery) ||
-          visit.car?.customer?.name?.toLowerCase().includes(lowercasedQuery) ||
-          visit.car?.customer?.phone?.includes(lowercasedQuery) ||
           visit.service_categories?.name?.toLowerCase().includes(lowercasedQuery) ||
           visit.service_category?.name?.toLowerCase().includes(lowercasedQuery) ||
-          visit.notes?.toLowerCase().includes(lowercasedQuery)
+          visit.notes?.toLowerCase().includes(lowercasedQuery) ||
+          visit.car?.make?.toLowerCase().includes(lowercasedQuery) ||
+          visit.car?.model?.toLowerCase().includes(lowercasedQuery) ||
+          visit.car?.plate_number?.toLowerCase().includes(lowercasedQuery)
       );
     }
     
@@ -463,7 +189,9 @@ export default function ServiceHistoryScreen() {
   
   const handleRefresh = () => {
     setRefreshing(true);
-    setRefreshKey(prevKey => prevKey + 1);
+    mutateServices().finally(() => {
+      setRefreshing(false);
+    });
   };
   
   const formatDate = (dateString: string) => {
@@ -593,6 +321,7 @@ export default function ServiceHistoryScreen() {
           onPress={() => setSelectedCategoryId(null)}
           style={[styles.filterChip, selectedCategoryId === null ? styles.activeFilterChip : null]}
           selectedColor={selectedCategoryId === null ? COLORS.white : COLORS.primary}
+          icon="view-list"
         >
           الكل
         </Chip>
@@ -605,7 +334,7 @@ export default function ServiceHistoryScreen() {
           selectedColor={selectedCategoryId === 'services' ? COLORS.white : COLORS.primary}
           icon="wrench"
         >
-          الخدمات
+          خدمات
         </Chip>
         
         <Chip
@@ -616,7 +345,7 @@ export default function ServiceHistoryScreen() {
           selectedColor={selectedCategoryId === 'logs' ? COLORS.white : COLORS.primary}
           icon="history"
         >
-          السجلات
+          سجلات
         </Chip>
         
         <Chip
@@ -670,7 +399,9 @@ export default function ServiceHistoryScreen() {
   
   const title = car ? `سجل خدمات ${car.make} ${car.model}` : "سجل الخدمات";
   
-  if (loading && !refreshing) {
+  // حالة التحميل
+  const isLoading = shopLoading || (carId ? carLoading : false) || serviceLoading;
+  if (isLoading && !refreshing) {
     return <Loading fullScreen message="جاري تحميل سجل الخدمات..." />;
   }
   

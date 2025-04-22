@@ -98,10 +98,13 @@ export default function AddCarScreen() {
       })
     ]).start();
 
-    // التحقق من وجود QR ID من الماسح
+    // التحقق من وجود QR ID أو NFC ID من الماسح
     if (searchParams.qrId) {
       console.log('تم استلام QR ID من الماسح:', searchParams.qrId);
       setQrId(searchParams.qrId.toString());
+    } else if (searchParams.nfcId) {
+      console.log('تم استلام NFC ID من الماسح:', searchParams.nfcId);
+      setQrId(searchParams.nfcId.toString());
     }
   }, []);
 
@@ -236,9 +239,9 @@ export default function AddCarScreen() {
       newErrors.customerName = 'الرجاء إدخال اسم العميل';
     }
     
-    // التحقق من رمز QR للسيارة
+    // التحقق من رمز التعريف للسيارة
     if (!qrId) {
-      newErrors.qrId = 'الرجاء مسح رمز QR للسيارة';
+      newErrors.qrId = 'الرجاء مسح رمز NFC للسيارة';
     }
     
     // التحقق من بيانات الزيت إذا كان المستخدم في قسم الزيت
@@ -501,9 +504,12 @@ export default function AddCarScreen() {
 
   const buttonScale = useRef(new Animated.Value(1)).current;
   
-  // دالة للانتقال إلى صفحة مسح QR
-  const navigateToScan = () => {
-    router.push('/shop/scan?returnTo=add-car');
+  // التنقل إلى صفحة مسح NFC
+  const navigateToNfc = () => {
+    router.push({
+      pathname: '/shop/nfc',
+      params: { action: 'add-car' }
+    });
   };
 
   // عرض منتقي التاريخ بناءً على المنصة
@@ -697,26 +703,41 @@ export default function AddCarScreen() {
 
                   <View style={styles.qrScanContainer}>
                     <View style={styles.qrTextContainer}>
-                      <Text style={styles.qrTitle}>رمز QR للسيارة</Text>
+                      <Text style={styles.qrTitle}>رمز التعريف للسيارة</Text>
                       <Text style={styles.qrDescription}>
-                        امسح رمز QR ليكون معرّف فريد للسيارة
+                        قم بمسح بطاقة NFC لتسجيل هذه السيارة
                       </Text>
                       {qrId ? (
-                        <Text style={styles.qrIdText}>
-                          تم تعيين: {qrId}
-                        </Text>
-                      ) : errors.qrId ? (
-                        <Text style={styles.errorText}>
-                          {errors.qrId}
-                        </Text>
-                      ) : null}
+                        <View style={styles.qrIdContainer}>
+                          <Icon name="check-circle" size={24} color={COLORS.success} />
+                          <Text style={styles.qrIdText}>تم تسجيل الرمز: {qrId}</Text>
+                          <TouchableOpacity
+                            style={styles.resetButton}
+                            onPress={() => setQrId('')}
+                          >
+                            <Icon name="refresh" size={20} color="#FFF" />
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <View style={styles.nfcScanContainer}>
+                          <Text style={styles.nfcMessage}>
+                            {errors.qrId ? (
+                              <Text style={{ color: COLORS.error }}>{errors.qrId}</Text>
+                            ) : (
+                              'قم بمسح بطاقة NFC لتسجيل هذه السيارة'
+                            )}
+                          </Text>
+                          
+                          <TouchableOpacity
+                            style={styles.nfcScanButton}
+                            onPress={navigateToNfc}
+                          >
+                            <Icon name="nfc" size={24} color="#FFF" />
+                            <Text style={styles.nfcScanButtonText}>مسح بطاقة NFC</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
                     </View>
-                    <TouchableOpacity 
-                      style={styles.scanButton}
-                      onPress={navigateToScan}
-                    >
-                      <Icon name="qrcode-scan" size={26} color="#fff" />
-                    </TouchableOpacity>
                   </View>
           
           <Input
@@ -1824,5 +1845,51 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 12,
     fontSize: 16,
+  },
+  nfcScanContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f8f8f8',
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#eee',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  nfcMessage: {
+    flex: 1,
+    color: '#666',
+  },
+  nfcScanButton: {
+    padding: 15,
+    backgroundColor: COLORS.primary,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  nfcScanButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  qrIdContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(0, 122, 255, 0.1)',
+    padding: 8,
+    borderRadius: 6,
+  },
+  resetButton: {
+    padding: 5,
   },
 }); 

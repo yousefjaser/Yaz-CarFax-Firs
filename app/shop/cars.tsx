@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, FlatList, TouchableOpacity, RefreshControl, Share, Alert, Linking, Platform } from 'react-native';
-import { Appbar, Text, Card, Searchbar, FAB, ActivityIndicator, Badge, Divider } from 'react-native-paper';
+import { Appbar, Text, Card, Searchbar, FAB, ActivityIndicator, Badge, Divider, Button } from 'react-native-paper';
 import { COLORS, SPACING } from '../constants';
 import { supabase } from '../config';
 import { useAuthStore } from '../utils/store';
 import Loading from '../components/Loading';
 import { useRouter } from 'expo-router';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import useSWR, { mutate } from 'swr';
+import { fetchShopData, getCacheKey } from '../utils/swr-config';
 
 // تحديث كائن الألوان لإضافة لون النجاح
 const COLORS_EXTENDED = {
@@ -16,16 +18,72 @@ const COLORS_EXTENDED = {
   error: '#F44336',
 };
 
+// دالة لتحميل السيارات مع دعم التحميل التدريجي باستخدام SWR
+const fetchShopCarsWithPagination = async (shopId: string, page: number = 1, itemsPerPage: number = 10) => {
+  if (!shopId) {
+    console.log('تم استدعاء fetchShopCarsWithPagination بدون shopId');
+    return { data: [], hasMore: false, totalCount: 0 };
+  }
+  
+  // حساب الحدود للتحميل التدريجي
+  const from = (page - 1) * itemsPerPage;
+  const to = from + itemsPerPage - 1;
+  
+  try {
+    // تحسين طلب البيانات عن طريق طلب المعلومات الضرورية فقط
+    const { data, error, count } = await supabase
+      .from('cars_new')
+      .select(`
+        qr_id,
+        make,
+        model,
+        year,
+        color,
+        plate_number,
+        last_oil_change_date,
+        updated_at,
+        customer:customer_id (
+          id,
+          name,
+          phone
+        )
+      `, { count: 'exact' })
+      .eq('shop_id', shopId)
+      .order('updated_at', { ascending: false })
+      .range(from, to);
+    
+    if (error) {
+      console.error('خطأ في استعلام السيارات:', error);
+      throw error;
+    }
+    
+    // تعيين قيم افتراضية لبيانات الخدمة وتحسين الأداء
+    const carsWithFormattedData = data?.map(car => ({
+      ...car,
+      lastServiceDate: car.last_oil_change_date || null,
+      lastServiceType: 'تغيير زيت',
+      visitsCount: car.last_oil_change_date ? 1 : 0
+    }));
+    
+    return {
+      data: carsWithFormattedData || [],
+      hasMore: data ? data.length === itemsPerPage : false,
+      totalCount: count || 0
+    };
+  } catch (err) {
+    console.error('حدث خطأ أثناء تحميل السيارات:', err);
+    return { data: [], hasMore: false, totalCount: 0 };
+  }
+};
+
 export default function CarsScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const [loading, setLoading] = useState(true);
-  const [initialLoading, setInitialLoading] = useState(true); // حالة جديدة لتحميل البيانات الأولي
+  const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [cars, setCars] = useState<any[]>([]);
   const [filteredCars, setFilteredCars] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [shop, setShop] = useState<any>(null);
   
   // متغيرات التحميل التدريجي الجديدة
   const [page, setPage] = useState(1);
@@ -33,15 +91,102 @@ export default function CarsScreen() {
   const [hasMoreData, setHasMoreData] = useState(true);
   const ITEMS_PER_PAGE = 10; // عدد السيارات في كل صفحة
   
-  useEffect(() => {
-    loadShopData();
-  }, []);
-  
-  useEffect(() => {
-    if (shop) {
-      // تحميل البيانات الأولية فقط (الصفحة الأولى)
-      loadCars(1, true);
+  // استخدام SWR لتحميل بيانات المحل
+  const { data: shop, error: shopError, isLoading: shopLoading } = useSWR(
+    user ? getCacheKey('shop-data', user.id) : null,
+    (key) => {
+      if (!user) return Promise.resolve(null);
+      return fetchShopData(user.id);
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 10000, // 10 ثوانٍ
+      focusThrottleInterval: 10000,
+      onSuccess: (data) => {
+        if (data) {
+          setInitialLoading(false);
+        }
+      }
     }
+  );
+  
+  // مؤقت لمنع التحميل اللانهائي
+  useEffect(() => {
+    // إذا استمر التحميل لمدة معينة بدون بيانات، نعتبر أنه تم الانتهاء من التحميل
+    const timeoutId = setTimeout(() => {
+      if (initialLoading) {
+        console.log('تم إنهاء التحميل الأولي بعد انتهاء المهلة');
+        setInitialLoading(false);
+      }
+    }, 5000); // 5 ثوانٍ كحد أقصى للتحميل
+
+    return () => clearTimeout(timeoutId);
+  }, [initialLoading]);
+  
+  // استخدام SWR لتحميل السيارات - الصفحة الأولى فقط
+  const { data: carsPageData, error: carsError, isLoading: carsLoading, mutate: mutateCars } = useSWR(
+    shop ? getCacheKey('shop-cars-page', { shopId: shop.id, page: 1, itemsPerPage: ITEMS_PER_PAGE }) : null,
+    (key) => {
+      if (!shop) return Promise.resolve(null);
+      return fetchShopCarsWithPagination(shop.id, 1, ITEMS_PER_PAGE);
+    },
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 10000, // 10 ثوانٍ
+      focusThrottleInterval: 10000,
+      onSuccess: (data) => {
+        if (data && data.data) {
+          setCars(data.data);
+          setHasMoreData(data.hasMore);
+        }
+      }
+    }
+  );
+  
+  // قسم استماع التغييرات في الوقت الفعلي
+  useEffect(() => {
+    if (!shop) return;
+
+    // إنشاء قناة مشتركة واحدة لكل التغييرات
+    const carsChannel = supabase.channel('cars-changes');
+    
+    // إضافة المستمعين للأحداث
+    const carsSubscription = carsChannel
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'cars_new',
+        filter: `shop_id=eq.${shop.id}`
+      }, (payload) => {
+        console.log('تم إضافة سيارة جديدة، تحديث البيانات');
+        mutateCars();
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'cars_new',
+        filter: `shop_id=eq.${shop.id}`
+      }, (payload) => {
+        console.log('تم تحديث سيارة، تحديث البيانات');
+        mutateCars();
+      })
+      .on('postgres_changes', {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'cars_new',
+        filter: `shop_id=eq.${shop.id}`
+      }, (payload) => {
+        console.log('تم حذف سيارة، تحديث البيانات');
+        mutateCars();
+      })
+      .subscribe();
+
+    return () => {
+      // إلغاء الاشتراك بالطريقة الصحيحة
+      carsChannel.unsubscribe();
+    };
   }, [shop]);
   
   useEffect(() => {
@@ -52,103 +197,27 @@ export default function CarsScreen() {
     }
   }, [cars, searchQuery]);
   
-  const loadShopData = async () => {
-    if (!user) return;
-    
-    try {
-      const { data, error } = await supabase
-        .from('shops')
-        .select('*')
-        .eq('owner_id', user.id)
-        .maybeSingle();
-      
-      if (error) throw error;
-      setShop(data);
-    } catch (error) {
-      console.error('فشل في تحميل بيانات المحل:', error);
-    }
-  };
-  
-  // دالة معدلة لتحميل السيارات مع دعم التحميل التدريجي
-  const loadCars = async (pageNumber = page, isInitial = false) => {
-    if (!shop) return;
-    
-    if (isInitial) {
-      setInitialLoading(true);
-    } else if (!isInitial && pageNumber === 1) {
-      setRefreshing(true);
-    } else {
-      setLoadingMore(true);
-    }
-    
-    try {
-      // حساب الحدود للتحميل التدريجي
-      const from = (pageNumber - 1) * ITEMS_PER_PAGE;
-      const to = from + ITEMS_PER_PAGE - 1;
-      
-      // تحسين طلب البيانات عن طريق طلب المعلومات الضرورية فقط
-      const { data, error, count } = await supabase
-        .from('cars_new')
-        .select(`
-          qr_id,
-          make,
-          model,
-          year,
-          color,
-          plate_number,
-          last_oil_change_date,
-          updated_at,
-          customer:customer_id (
-            id,
-            name,
-            phone
-          )
-        `, { count: 'exact' })
-        .eq('shop_id', shop.id)
-        .order('updated_at', { ascending: false })
-        .range(from, to);
-      
-      if (error) throw error;
-      
-      // تعيين قيم افتراضية لبيانات الخدمة وتحسين الأداء
-      const carsWithFormattedData = data?.map(car => ({
-        ...car,
-        lastServiceDate: car.last_oil_change_date || null,
-        lastServiceType: 'تغيير زيت',
-        visitsCount: car.last_oil_change_date ? 1 : 0
-      }));
-      
-      // إضافة السيارات الجديدة أو استبدال القائمة حسب رقم الصفحة
-      if (pageNumber === 1) {
-        setCars(carsWithFormattedData || []);
-      } else {
-        setCars(prev => [...prev, ...(carsWithFormattedData || [])]);
-      }
-      
-      // التحقق مما إذا كان هناك المزيد من البيانات للتحميل
-      setHasMoreData(data ? data.length === ITEMS_PER_PAGE : false);
-      
-      // تحديث رقم الصفحة الحالية
-      setPage(pageNumber);
-      
-    } catch (error) {
-      console.error('فشل في تحميل السيارات:', error);
-    } finally {
-      if (isInitial) {
-        setInitialLoading(false);
-      } else if (!isInitial && pageNumber === 1) {
-        setRefreshing(false);
-      } else {
-        setLoadingMore(false);
-      }
-      setLoading(false);
-    }
-  };
-  
   // تحميل المزيد من السيارات عند التمرير
-  const handleLoadMore = () => {
-    if (!loadingMore && hasMoreData) {
-      loadCars(page + 1);
+  const loadMoreCars = async () => {
+    if (!shop || !hasMoreData || loadingMore) return;
+    
+    setLoadingMore(true);
+    
+    try {
+      const nextPage = page + 1;
+      const newCarsData = await fetchShopCarsWithPagination(shop.id, nextPage, ITEMS_PER_PAGE);
+      
+      if (newCarsData.data.length > 0) {
+        setCars(prev => [...prev, ...newCarsData.data]);
+        setPage(nextPage);
+        setHasMoreData(newCarsData.hasMore);
+      } else {
+        setHasMoreData(false);
+      }
+    } catch (error) {
+      console.error('فشل في تحميل المزيد من السيارات:', error);
+    } finally {
+      setLoadingMore(false);
     }
   };
   
@@ -187,7 +256,10 @@ export default function CarsScreen() {
   
   const handleRefresh = () => {
     setRefreshing(true);
-    loadCars(1);
+    setPage(1);
+    mutateCars().finally(() => {
+      setRefreshing(false);
+    });
   };
   
   const handleAddCar = () => {
@@ -388,8 +460,28 @@ export default function CarsScreen() {
   );
   
   // شاشة التحميل الأولية فقط تظهر في المرة الأولى
-  if (initialLoading) {
+  const isLoading = initialLoading && shopLoading && !shopError;
+  if (isLoading && !refreshing) {
     return <Loading fullScreen message="جاري تحميل السيارات..." />;
+  }
+  
+  // عرض رسالة خطأ إذا كان هناك مشكلة في تحميل البيانات
+  if (shopError && !refreshing) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Icon name="alert-circle-outline" size={50} color={COLORS.error} />
+        <Text style={{ fontSize: 18, color: COLORS.error, marginTop: 10, textAlign: 'center' }}>
+          حدث خطأ أثناء تحميل البيانات
+        </Text>
+        <Button 
+          mode="contained" 
+          style={{ marginTop: 20 }} 
+          onPress={() => router.replace('/shop/cars')}
+        >
+          إعادة المحاولة
+        </Button>
+      </View>
+    );
   }
   
   return (
@@ -480,7 +572,7 @@ export default function CarsScreen() {
         }
         ListEmptyComponent={EmptyList}
         ListFooterComponent={renderFooter}
-        onEndReached={handleLoadMore}
+        onEndReached={loadMoreCars}
         onEndReachedThreshold={0.3}
         maxToRenderPerBatch={5}
         windowSize={10}
